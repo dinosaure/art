@@ -6,7 +6,9 @@ module String = struct
   external unsafe_get_uint32 : string -> int -> int32 = "%caml_string_get32"
 end
 
-let ( .![] ) = String.get
+let ( .![] ) v i =
+  if i >= String.length v then '\000'
+  else String.get v i
 let ( .!{} ) = Bytes.get
 let ( .!() ) = Array.get
 let ( .!()<- ) = Array.set
