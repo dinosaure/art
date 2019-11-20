@@ -1,13 +1,15 @@
+let () = Printexc.record_backtrace true
+
 module String = struct
   include Stdlib.String
 
   external unsafe_get_uint32 : string -> int -> int32 = "%caml_string_get32"
 end
 
-let ( .![] ) = String.unsafe_get
-let ( .!{} ) = Bytes.unsafe_get
-let ( .!() ) = Array.unsafe_get
-let ( .!()<- ) = Array.unsafe_set
+let ( .![] ) = String.get
+let ( .!{} ) = Bytes.get
+let ( .!() ) = Array.get
+let ( .!()<- ) = Array.set
 
 type 'a node =
   { header : header
@@ -43,6 +45,10 @@ and n16 =
   ; mutable n16 : int }
 and n48 = int array
 and n256 = int array
+
+type 'a t =
+  { mutable root : 'a elt
+  ; mutable null : 'a option }
 
 let pp_char ppf = function
   | '\x21' .. '\x7e' as chr -> Fmt.char ppf chr
@@ -90,7 +96,10 @@ let rec pp_elt pp_value ppf = function
     Fmt.pf ppf "{:node @[<hov>hdr= @[<hov>%a@];@ children= @[<hov>%a@];@] }"
       pp_header header Fmt.(Dump.array (pp_elt pp_value)) children
 
-let pp pp_value ppf { contents } = pp_elt pp_value ppf contents
+let pp pp_value ppf { root; null } =
+  Fmt.pf ppf "{ @[<hov>root= @[<hov>%a@];@ null= @[<hov>%a@];@] }"
+    (pp_elt pp_value) root
+    (Fmt.option pp_value) null
 
 external ctz : int -> int = "caml_ctz" [@@noalloc]
 
@@ -372,12 +381,12 @@ let find_child
       | N4 ->
         let m = record.count in
         if m > 0 && record.keys.n0_1 land 0xff = code
-        then res := 0 ;
-        if m > 1 && (record.keys.n0_1 asr 8) land 0xff = code
-        then res := 1 ;
-        if m > 2 && record.keys.n2_3 land 0xff = code
-        then res := 2 ;
-        if m > 3 && (record.keys.n2_3 asr 8) land 0xff = code
+        then res := 0
+        else if m > 1 && (record.keys.n0_1 asr 8) land 0xff = code
+        then res := 1
+        else if m > 2 && record.keys.n2_3 land 0xff = code
+        then res := 2
+        else if m > 3 && (record.keys.n2_3 asr 8) land 0xff = code
         then res := 3
       | N16 ->
         let bit = ref 0 in
@@ -444,17 +453,16 @@ let leaf_matches { key; _ } ~off key' len' =
   if String.length key <> len' then raise Not_found ;
   memcmp key key' ~off ~len:(len' - off)
 
-let find tree key =
-  let len = String.length key in
+let find : 'a elt -> string -> int -> 'a = fun root key key_len ->
   let rec go depth = function
     | Leaf leaf ->
-      leaf_matches leaf key ~off:depth len ; leaf.value
+      leaf_matches leaf key ~off:depth key_len ; leaf.value
     | Node { header= Header { kind= NULL; _ }; _ } -> raise Not_found
     | Node ({ header= Header header; children; } as node) ->
       let plen = header.prefix_length in
       let depth =
         if plen <> 0
-        then ( let plen' = check_prefix header ~off:depth key len in
+        then ( let plen' = check_prefix header ~off:depth key key_len in
                if plen' <> min 10 plen then raise Not_found
              ; depth + plen )
         else depth in
@@ -462,7 +470,16 @@ let find tree key =
       if x = not_found
       then raise Not_found
       else go (depth + 1) children.!(x) in
-  go 0 !tree
+  go 0 root
+
+let get = function
+  | Some x -> x
+  | None -> raise Not_found
+
+let find : 'a t -> string -> 'a = fun tree key ->
+  match String.length key with
+  | 0 -> get tree.null
+  | key_len -> find tree.root key key_len
 
 let find_opt tree key =
   match find tree key with
@@ -477,6 +494,8 @@ let rec insert kset elt key_a len_a value_a depth = match elt with
   | Node ({ header= Header record; children; } as node) ->
     let plen = record.prefix_length in
     let pdiff = prefix_mismatch node ~off:depth key_a len_a in
+
+    Fmt.epr ">>> pdiff: %d, plen: %d.\n%!" pdiff plen ;
 
     if pdiff >= plen
     then
@@ -522,9 +541,10 @@ let rec insert kset elt key_a len_a value_a depth = match elt with
 ;;
 
 let insert tree key value =
-  let kset v = tree := v in
-  insert kset !tree key (String.length key) value 0
+  match String.length key with
+  | 0 -> tree.null <- Some value
+  | key_len ->
+    let kset root = tree.root <- root in
+    insert kset tree.root key key_len value 0
 
-type 'a t = 'a elt ref
-
-let make = fun () -> { contents= empty_elt; }
+let make = fun () -> { root= empty_elt; null= None; }
