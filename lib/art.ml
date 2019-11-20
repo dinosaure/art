@@ -459,7 +459,7 @@ let longest_common_prefix ~off k1 k2 =
 
 let leaf_matches { key; _ } ~off key' len' =
   if String.length key <> len' then raise Not_found ;
-  memcmp key key' ~off ~len:(len' - off)
+  if len' - off > 0 then memcmp key key' ~off ~len:(len' - off)
 
 let find : 'a elt -> string -> int -> 'a = fun root key key_len ->
   let rec go depth = function
