@@ -1,3 +1,5 @@
+(** Adaptative Radix Tree in OCaml. *)
+
 type 'a t
 type key = private string
 

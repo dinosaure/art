@@ -1,5 +1,3 @@
-let () = Printexc.record_backtrace true
-
 module String = struct
   include Stdlib.String
 
@@ -7,6 +5,7 @@ module String = struct
 end
 
 let ( .!{} ) = Bytes.get
+let ( .!{}<- ) = Bytes.set
 let ( .!() ) = Array.get
 let ( .!()<- ) = Array.set
 
@@ -41,13 +40,7 @@ and 'a kind =
 and n4 =
   { mutable n0_1 : int
   ; mutable n2_3 : int }
-and n16 =
-  { mutable n0  : int
-  ; mutable n3  : int
-  ; mutable n6  : int
-  ; mutable n9  : int
-  ; mutable n12 : int
-  ; mutable n16 : int }
+and n16 = bytes
 and n48 = int array
 and n256 = int array
 
@@ -65,11 +58,10 @@ let pp_char ppf = function
 let pp_n4 ppf { n0_1; n2_3; } =
   Fmt.pf ppf "%a" Fmt.(Dump.array (using Char.unsafe_chr pp_char)) [| n0_1 land 0xff; n0_1 asr 8; n2_3 land 0xff; n2_3 asr 8 |]
 
-let pp_n16 ppf { n0; n3; n6; n9; n12; n16; } =
-  let to_array n = [| n land 0xff; (n asr 8) land 0xff; (n asr 16) land 0xff |] in
+let pp_n16 ppf keys =
   Fmt.pf ppf "%a"
-    Fmt.(Dump.array (using Char.unsafe_chr pp_char))
-    (Array.concat [ to_array n0; to_array n3; to_array n6; to_array n9; to_array n12; [| n16 |] ])
+    Fmt.(Dump.array pp_char)
+    (Array.init 16 (fun i -> keys.!{i}))
 
 let pp_n48 = Fmt.(Dump.array int)
 let pp_n256 = Fmt.(Dump.array int)
@@ -151,119 +143,11 @@ let n16 () : n16 record =
   let record =
     { prefix; prefix_length= 0;
       count= 0;
-      kind= N16; keys= { n0= 0; n3= 0; n6= 0; n9= 0; n12= 0; n16= 0; } } in
+      kind= N16; keys= Bytes.make 16 '\000' } in
   record
 
-let n16_iteri ~f n16 =
-  f 0 (n16.n0 land 0xff)   ; f 1  ((n16.n0  asr 8) land 0xff) ; f 2  ((n16.n0  asr 16)  land 0xff) ;
-  f 3 (n16.n3 land 0xff)   ; f 4  ((n16.n3  asr 8) land 0xff) ; f 5  ((n16.n3  asr 16)  land 0xff) ;
-  f 6 (n16.n6 land 0xff)   ; f 7  ((n16.n6  asr 8) land 0xff) ; f 8  ((n16.n6  asr 16)  land 0xff) ;
-  f 9 (n16.n9 land 0xff)   ; f 10 ((n16.n9  asr 8) land 0xff) ; f 11 ((n16.n9  asr 16)  land 0xff) ;
-  f 12 (n16.n12 land 0xff) ; f 13 ((n16.n12 asr 8) land 0xff) ; f 14 ((n16.n12 asr 16) land 0xff) ;
-  f 15 (n16.n16 land 0xff)
-;;
-
-let n16_set n16 idx chr = match idx with
-  | 0  -> n16.n0  <- n16.n0  lor chr
-  | 1  -> n16.n0  <- n16.n0  lor (chr lsl 8)
-  | 2  -> n16.n0  <- n16.n0  lor (chr lsl 16)
-  | 3  -> n16.n3  <- n16.n3  lor chr
-  | 4  -> n16.n3  <- n16.n3  lor (chr lsl 8)
-  | 5  -> n16.n3  <- n16.n3  lor (chr lsl 16)
-  | 6  -> n16.n6  <- n16.n6  lor chr
-  | 7  -> n16.n6  <- n16.n6  lor (chr lsl 8)
-  | 8  -> n16.n6  <- n16.n6  lor (chr lsl 16)
-  | 9  -> n16.n9  <- n16.n9  lor chr
-  | 10 -> n16.n9  <- n16.n9  lor (chr lsl 8)
-  | 11 -> n16.n9  <- n16.n9  lor (chr lsl 16)
-  | 12 -> n16.n12 <- n16.n12 lor chr
-  | 13 -> n16.n12 <- n16.n12 lor (chr lsl 8)
-  | 14 -> n16.n12 <- n16.n12 lor (chr lsl 16)
-  | 15 -> n16.n16 <- chr
-  | _ -> invalid_arg "n16_set"
-
-let n16_shift n16 = function
-  | 0 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor ((n16.n9 asr 16) land 0xff)
-  ; n16.n9  <- (n16.n9  lsl 8) lor ((n16.n6 asr 16) land 0xff)
-  ; n16.n6  <- (n16.n6  lsl 8) lor ((n16.n3 asr 16) land 0xff)
-  ; n16.n3  <- (n16.n3  lsl 8) lor ((n16.n0 asr 16) land 0xff)
-  ; n16.n0  <- (n16.n0  lsl 8)
-  | 1 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor ((n16.n9 asr 16) land 0xff)
-  ; n16.n9  <- (n16.n9  lsl 8) lor ((n16.n6 asr 16) land 0xff)
-  ; n16.n6  <- (n16.n6  lsl 8) lor ((n16.n3 asr 16) land 0xff)
-  ; n16.n3  <- (n16.n3  lsl 8) lor ((n16.n0 asr 16) land 0xff)
-  ; n16.n0  <- (n16.n0  lsl 8) lor (n16.n0 land 0xff)
-  | 2 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor ((n16.n9 asr 16) land 0xff)
-  ; n16.n9  <- (n16.n9  lsl 8) lor ((n16.n6 asr 16) land 0xff)
-  ; n16.n6  <- (n16.n6  lsl 8) lor ((n16.n3 asr 16) land 0xff)
-  ; n16.n3  <- (n16.n3  lsl 8) lor ((n16.n0 asr 16) land 0xff)
-  ; let n0 = n16.n0 in n16.n0 <- n0 land 0xffff
-
-  | 3 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor ((n16.n9 asr 16) land 0xff)
-  ; n16.n9  <- (n16.n9  lsl 8) lor ((n16.n6 asr 16) land 0xff)
-  ; n16.n6  <- (n16.n6  lsl 8) lor ((n16.n3 asr 16) land 0xff)
-  ; n16.n3  <- (n16.n3  lsl 8)
-  | 4 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor ((n16.n9 asr 16) land 0xff)
-  ; n16.n9  <- (n16.n9  lsl 8) lor ((n16.n6 asr 16) land 0xff)
-  ; n16.n6  <- (n16.n6  lsl 8) lor ((n16.n3 asr 16) land 0xff)
-  ; n16.n3  <- (n16.n3  lsl 8) lor (n16.n3 land 0xff)
-  | 5 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor ((n16.n9 asr 16) land 0xff)
-  ; n16.n9  <- (n16.n9  lsl 8) lor ((n16.n6 asr 16) land 0xff)
-  ; n16.n6  <- (n16.n6  lsl 8) lor ((n16.n3 asr 16) land 0xff)
-  ; let n3 = n16.n3 in n16.n3 <- n3 land 0xffff
-
-  | 6 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor ((n16.n9 asr 16) land 0xff)
-  ; n16.n9  <- (n16.n9  lsl 8) lor ((n16.n6 asr 16) land 0xff)
-  ; n16.n6  <- (n16.n6  lsl 8)
-  | 7 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor ((n16.n9 asr 16) land 0xff)
-  ; n16.n9  <- (n16.n9  lsl 8) lor ((n16.n6 asr 16) land 0xff)
-  ; n16.n6  <- (n16.n6  lsl 8) lor (n16.n6 land 0xff)
-  | 8 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor ((n16.n9 asr 16) land 0xff)
-  ; n16.n9  <- (n16.n9  lsl 8) lor ((n16.n6 asr 16) land 0xff)
-  ; let n6 = n16.n6 in n16.n6 <- n6 land 0xffff
-
-  | 9 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor ((n16.n9 asr 16) land 0xff)
-  ; n16.n9  <- (n16.n9  lsl 8)
-  | 10 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor ((n16.n9 asr 16) land 0xff)
-  ; n16.n9  <- (n16.n9  lsl 8) lor (n16.n9 land 0xff)
-  | 11 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor ((n16.n9 asr 16) land 0xff)
-  ; let n9 = n16.n9 in n16.n9 <- n9 land 0xffff
-
-  | 12 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8)
-  | 13 ->
-    n16.n16 <- n16.n12 asr 16
-  ; n16.n12 <- (n16.n12 lsl 8) lor (n16.n12 land 0xff)
-  | 14 ->
-    n16.n16 <- n16.n12 asr 16
-  ; let n12 = n16.n12 in n16.n12 <- n12 land 0xffff
-
-  | 15 -> () | _ -> invalid_arg "n16_shift"
+let n16_shift keys n =
+  Bytes.unsafe_blit keys n keys (n + 1) (16 - (n + 1))
 
 let n48 () : n48 record =
   let prefix = Bytes.make 10 '\000' in
@@ -335,19 +219,18 @@ let add_child_n16
     then ( let mask = (1 lsl record.count) - 1 in
            let bit = ref 0 in
            let idx = ref 0 in
-           n16_iteri ~f:(fun i v -> if Char.code chr = v then bit := !bit lor (1 lsl i)) record.keys ;
+           for i = 0 to 15 do if chr < record.keys.!{i} then bit := !bit lor (1 lsl i) done ;
            bit := !bit land mask ;
            if !bit <> 0
            then ( idx := ctz !bit
                 ; n16_shift record.keys !idx
                 ; Array.blit children !idx children (!idx + 1) (record.count - !idx) )
            else idx := record.count ;
-           n16_set record.keys !idx (Char.code chr) ;
+           record.keys.!{!idx} <- chr ;
            children.!(!idx) <- node ;
            record.count <- record.count + 1 )
     else ( let node48 = n48 () in
-           let f i v = node48.keys.!(v) <- i + 1 in
-           n16_iteri ~f record.keys ;
+           for i = 0 to record.count - 1 do node48.keys.!(Char.code record.keys.!{i}) <- i + 1 done ;
            copy_header ~src:record ~dst:node48 ;
            let children' = Array.make 48 empty_elt in
            Array.blit children 0 children' 0 16 ;
@@ -372,8 +255,10 @@ let add_child_n4
     else ( let node16 = n16 () in
            let children' = Array.make 16 empty_elt in
            Array.blit children 0 children' 0 4 ;
-           node16.keys.n0 <- record.keys.n0_1 lor ((record.keys.n2_3 land 0xff) lsl 16) ;
-           node16.keys.n3 <- record.keys.n2_3 asr 8 ;
+           node16.keys.!{0} <- Char.unsafe_chr (record.keys.n0_1 land 0xff) ;
+           node16.keys.!{1} <- Char.unsafe_chr (record.keys.n0_1 asr 8) ;
+           node16.keys.!{2} <- Char.unsafe_chr (record.keys.n2_3 land 0xff) ;
+           node16.keys.!{3} <- Char.unsafe_chr (record.keys.n2_3 asr 8) ;
            copy_header ~src:record ~dst:node16 ;
            add_child_n16 node16 ignore_n48 children' chr node ; kgrow node16 children' )
 
@@ -398,8 +283,7 @@ let find_child
         then res := 3
       | N16 ->
         let bit = ref 0 in
-        let f i v = if v = code then bit := !bit lor (1 lsl i) in
-        n16_iteri ~f record.keys ;
+        for i = 0 to 15 do if record.keys.!{i} = chr then bit := !bit lor (1 lsl i) done ;
         let mask = (1 lsl record.count) - 1 in
         if !bit land mask <> 0 then res := ctz !bit
       | N48 ->
