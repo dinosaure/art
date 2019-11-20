@@ -11,9 +11,20 @@ let ( .!()<- ) = Array.set
 
 type key = string (* + \000 *)
 
-let ( .![] ) key v =
-  if v = String.length key then '\x00'
-  else String.get key v
+let ( .![] ) = String.unsafe_get
+
+(* XXX(dinosaure): [unsafe_get] is required for performance but should
+   be safe. ART uses the '\000' at the end of a string to ensure:
+
+   > keys must not be prefixes any other keys.
+
+   According layout of an OCaml string into the runtime, we have a
+   '\000' at the end (padding), at least one byte. If you are 
+   paranoniac, you can replace this snippet by:
+
+   > if v = String.length key then '\000' else String.get k v
+
+   This safe way was fuzzed and we did not get any exception. *)
 
 type 'a node =
   { header : header
@@ -47,9 +58,7 @@ and n256 = int array
 let key : string -> key = fun key ->
   if String.contains key '\000' then invalid_arg "Invalid key" ; key
 
-type 'a t =
-  { mutable root : 'a elt
-  ; mutable null : 'a option }
+type 'a t = 'a elt ref
 
 let pp_char ppf = function
   | '\x21' .. '\x7e' as chr -> Fmt.char ppf chr
@@ -96,10 +105,7 @@ let rec pp_elt pp_value ppf = function
     Fmt.pf ppf "{:node @[<hov>hdr= @[<hov>%a@];@ children= @[<hov>%a@];@] }"
       pp_header header Fmt.(Dump.array (pp_elt pp_value)) children
 
-let pp pp_value ppf { root; null } =
-  Fmt.pf ppf "{ @[<hov>root= @[<hov>%a@];@ null= @[<hov>%a@];@] }"
-    (pp_elt pp_value) root
-    (Fmt.option pp_value) null
+let pp pp_value ppf { contents; } = pp_elt pp_value ppf contents
 
 external ctz : int -> int = "caml_ctz" [@@noalloc]
 
@@ -345,7 +351,8 @@ let leaf_matches { key; _ } ~off key' len' =
   if String.length key <> len' then raise Not_found ;
   if len' - off > 0 then memcmp key key' ~off ~len:(len' - off)
 
-let find : 'a elt -> string -> int -> 'a = fun root key key_len ->
+let find tree key =
+  let key_len = String.length key in
   let rec go depth = function
     | Leaf leaf ->
       leaf_matches leaf key ~off:depth key_len ; leaf.value
@@ -362,16 +369,7 @@ let find : 'a elt -> string -> int -> 'a = fun root key key_len ->
       if x = not_found
       then raise Not_found
       else go (depth + 1) children.!(x) in
-  go 0 root
-
-let get = function
-  | Some x -> x
-  | None -> raise Not_found
-
-let find : 'a t -> string -> 'a = fun tree key ->
-  match String.length key with
-  | 0 -> get tree.null
-  | key_len -> find tree.root key key_len
+  go 0 !tree
 
 let find_opt tree key =
   match find tree key with
@@ -432,10 +430,7 @@ let rec insert kset elt key_a len_a value_a depth = match elt with
 ;;
 
 let insert tree key value =
-  match String.length key with
-  | 0 -> tree.null <- Some value
-  | key_len ->
-    let kset root = tree.root <- root in
-    insert kset tree.root key key_len value 0
+  let kset root = tree := root in
+  insert kset !tree key (String.length key) value 0
 
-let make = fun () -> { root= empty_elt; null= None; }
+let make = fun () -> ref empty_elt
