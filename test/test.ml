@@ -88,12 +88,22 @@ let test08 =
   let res0 = Art.find_opt tree "g" in
   Art.insert tree "\251\250\250\250\250" 1 ;
   Art.insert tree "\251\250\250" 2 ;
-  Fmt.epr ">>> %a\n%!" (Art.pp Fmt.int) tree ;
   let res1 = Art.find_opt tree "\251\250\250\250\250" in
   let res2 = Art.find_opt tree "\251\250\250" in
   Alcotest.(check (option int)) "res0" res0 None ;
   Alcotest.(check (option int)) "res1" res1 (Some 1) ;
   Alcotest.(check (option int)) "res2" res2 (Some 2)
+;;
+
+let test09 =
+  Alcotest.test_case "test09" `Quick @@ fun () ->
+  let tree = Art.make () in
+  let res0 = Art.find_opt tree "g" in
+  Art.insert tree "\185\185\000\000" 1 ;
+  Art.insert tree "\185\185" 2 ;
+  Fmt.epr ">>> %a\n%!" (Art.pp Fmt.int) tree ;
+  Art.insert tree "\185\185" 3 ;
+  Alcotest.(check (option int)) "res0" res0 None
 ;;
 
 let () =
@@ -105,4 +115,5 @@ let () =
              ; test05
              ; test06
              ; test07
-             ; test08 ] ]
+             ; test08
+             ; test09 ] ]

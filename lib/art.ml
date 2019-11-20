@@ -6,19 +6,22 @@ module String = struct
   external unsafe_get_uint32 : string -> int -> int32 = "%caml_string_get32"
 end
 
-let ( .![] ) v i =
-  if i >= String.length v then '\000'
-  else String.get v i
 let ( .!{} ) = Bytes.get
 let ( .!() ) = Array.get
 let ( .!()<- ) = Array.set
+
+type key = string (* + \000 *)
+
+let ( .![] ) key v =
+  if v = String.length key then '\x00'
+  else String.get key v
 
 type 'a node =
   { header : header
   ; children : 'a elt array }
 and 'a leaf =
   { value : 'a
-  ; key : string }
+  ; key : key }
 and 'a elt =
   | Leaf of 'a leaf
   | Node of 'a node
@@ -47,6 +50,9 @@ and n16 =
   ; mutable n16 : int }
 and n48 = int array
 and n256 = int array
+
+let key : string -> key = fun key ->
+  if String.contains key '\000' then invalid_arg "Invalid key" ; key
 
 type 'a t =
   { mutable root : 'a elt
@@ -497,8 +503,6 @@ let rec insert kset elt key_a len_a value_a depth = match elt with
     let plen = record.prefix_length in
     let pdiff = prefix_mismatch node ~off:depth key_a len_a in
 
-    Fmt.epr ">>> pdiff: %d, plen: %d.\n%!" pdiff plen ;
-
     if pdiff >= plen
     then
       let chr = key_a.![depth + plen] in
@@ -530,7 +534,8 @@ let rec insert kset elt key_a len_a value_a depth = match elt with
       ; add_child_n4 node4 ignore_n16 children' key_a.![depth + pdiff] (Leaf { key= key_a; value= value_a; })
       ; kset (Node { header= Header node4; children= children'; }) )
   | Leaf leaf ->
-    try leaf_matches leaf ~off:depth key_a len_a ; kset (Leaf { leaf with value= value_a })
+    try
+      leaf_matches leaf ~off:depth key_a len_a ; kset (Leaf { leaf with value= value_a })
     with Not_found ->
       let node4 = n4 () in
       let children = Array.make 4 empty_elt in
