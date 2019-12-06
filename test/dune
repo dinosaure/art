@@ -1,3 +1,8 @@
 (executable
  (name test)
  (libraries art alcotest))
+
+(alias
+ (name runtest)
+ (deps (:test test.exe))
+ (action (run %{test} --color=always)))
