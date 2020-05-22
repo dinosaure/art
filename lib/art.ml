@@ -1,13 +1,15 @@
+[@@@landmark "auto"]
+
 module String = struct
   include Stdlib.String
 
   external unsafe_get_uint32 : string -> int -> int32 = "%caml_string_get32"
 end
 
-let ( .!{} ) = Bytes.get
-let ( .!{}<- ) = Bytes.set
-let ( .!() ) = Array.get
-let ( .!()<- ) = Array.set
+let ( .!{} ) = Bytes.unsafe_get
+let ( .!{}<- ) = Bytes.unsafe_set
+let ( .!() ) = Array.unsafe_get
+let ( .!()<- ) = Array.unsafe_set
 
 type key = string (* + \000 *)
 
@@ -26,23 +28,7 @@ let ( .![] ) = String.unsafe_get
 
    This safe way was fuzzed and we did not get any exception. *)
 
-type 'a node =
-  { header : header
-  ; children : 'a elt array }
-and 'a leaf =
-  { value : 'a
-  ; key : key }
-and 'a elt =
-  | Leaf of 'a leaf
-  | Node of 'a node
-and header = Header : 'a record -> header
-and 'a record =
-  { prefix : bytes 
-  ; mutable prefix_length : int
-  ; mutable count : int
-  ; kind : 'a kind
-  ; keys : 'a }
-and 'a kind =
+type 'a kind =
   | N4   : n4   kind
   | N16  : n16  kind
   | N48  : n48  kind
@@ -53,10 +39,30 @@ and n4 =
   ; mutable n2_3 : int }
 and n16 = bytes
 and n48 = int array
-and n256 = int array
+and n256 = bytes
+
+type 'a record =
+  { prefix : bytes 
+  ; mutable prefix_length : int
+  ; mutable count : int
+  ; kind : 'a kind
+  ; keys : 'a }
+
+type 'a node =
+  { header : header
+  ; children : 'a elt array }
+and 'a leaf =
+  { value : 'a
+  ; key : key }
+and 'a elt =
+  | Leaf of 'a leaf
+  | Node of 'a node
+and header = Header : 'a record -> header [@@unboxed]
 
 let key : string -> key = fun key ->
   if String.contains key '\000' then invalid_arg "Invalid key" ; key
+
+external unsafe_key : string -> key = "%identity"
 
 type 'a t = 'a elt ref
 
@@ -65,7 +71,8 @@ let pp_char ppf = function
   | chr -> Fmt.pf ppf "%02x" (Char.code chr)
 
 let pp_n4 ppf { n0_1; n2_3; } =
-  Fmt.pf ppf "%a" Fmt.(Dump.array (using Char.unsafe_chr pp_char)) [| n0_1 land 0xff; n0_1 asr 8; n2_3 land 0xff; n2_3 asr 8 |]
+  Fmt.pf ppf "%a" Fmt.(Dump.array (using Char.unsafe_chr pp_char))
+    [| n0_1 land 0xff; n0_1 asr 8; n2_3 land 0xff; n2_3 asr 8 |]
 
 let pp_n16 ppf keys =
   Fmt.pf ppf "%a"
@@ -73,7 +80,11 @@ let pp_n16 ppf keys =
     (Array.init 16 (fun i -> keys.!{i}))
 
 let pp_n48 = Fmt.(Dump.array int)
-let pp_n256 = Fmt.(Dump.array int)
+
+let pp_n256 ppf keys =
+  Fmt.pf ppf "%a"
+    Fmt.(Dump.array pp_char)
+    (Array.init 256 (fun i -> keys.!{i}))
 
 let pp_keys : type a. kind:a kind -> a Fmt.t = fun ~kind -> match kind with
   | N4 -> pp_n4
@@ -166,7 +177,7 @@ let n48 () : n48 record =
 
 let n256 () : n256 record =
   let prefix = Bytes.make 10 '\000' in
-  let keys = Array.make 256 0 in
+  let keys = Bytes.make 256 '\000' in
   let record =
     { prefix; prefix_length= 0;
       count= 0;
@@ -180,12 +191,12 @@ let memcmp a b ~off ~len =
   for i = 0 to len1 - 1 do
     let i = off + i * 4 in
     if String.unsafe_get_uint32 a i <> String.unsafe_get_uint32 b i
-    then raise Not_found ;
+    then raise_notrace Not_found ;
   done ;
 
   for i = 0 to len0 - 1 do
     let i = off + len1 * 4 + i in
-    if a.![i] <> b.![i] then raise Not_found ;
+    if a.![i] <> b.![i] then raise_notrace Not_found ;
   done
 ;;
 
@@ -217,6 +228,7 @@ let add_child_n48
            add_child_n256 node256 children chr node ; kgrow node256 children )
 
 let ignore_n48 : n48 record -> 'a elt array -> unit = fun _ _ -> assert false
+let ignore_n256 : n256 record -> 'a elt array -> unit = fun _ _ -> assert false
 
 let add_child_n16
   : n16 record -> (n48 record -> 'a elt array -> unit) -> 'a elt array -> char -> 'a elt -> unit
@@ -236,11 +248,11 @@ let add_child_n16
            children.!(!idx) <- node ;
            record.count <- record.count + 1 )
     else ( let node48 = n48 () in
-           for i = 0 to record.count - 1 do node48.keys.!(Char.code record.keys.!{i}) <- i + 1 done ;
+           for i = 0 to record.count - 1 do node48.keys.!(Char.code record.keys.!{i}) <- (i + 1) done ;
            copy_header ~src:record ~dst:node48 ;
            let children' = Array.make 48 empty_elt in
            Array.blit children 0 children' 0 16 ;
-           add_child_n48 node48 ignore_n48 children' chr node ; kgrow node48 children' )
+           add_child_n48 node48 ignore_n256 children' chr node ; kgrow node48 children' )
 
 let add_child_n4
   : n4 record -> (n16 record -> 'a elt array -> unit) -> 'a elt array -> char -> 'a elt -> unit
@@ -296,7 +308,7 @@ let find_child
         let i = record.keys.!(code) in
         if i <> 0 then res := i - 1
       | N256 ->
-        if record.keys.!(code) <> 0
+        if Char.code record.keys.!{code} <> 0
         then res := code
       | NULL -> () )
   ; !res
@@ -337,7 +349,12 @@ let prefix_mismatch ({ header= Header header; _ } as node) ~off key len =
   then
     ( let leaf = minimum (Node node) in
       let max = (min (String.length leaf.key) len) - off in
-      while !idx < max && leaf.key.![off + !idx] = key.![off + !idx] do incr idx done ) ;
+      while !idx < max 
+            && String.unsafe_get_uint32 leaf.key (off + !idx) = String.unsafe_get_uint32 key (off + !idx)
+      do idx := !idx + 4 done ;
+      while !idx < max 
+            && leaf.key.![off + !idx] = key.![off + !idx]
+      do incr idx done ) ;
   !idx
 ;;
 

@@ -1,0 +1,10 @@
+(library
+ (name art_landmarks)
+ (public_name art.landmarks)
+ (c_names ctz)
+ (libraries landmarks fmt)
+ (preprocess (pps landmarks.ppx --auto)))
+
+(rule (copy ../lib/art.ml art_landmarks.ml))
+(rule (copy ../lib/art.mli art_landmarks.mli))
+(rule (copy ../lib/ctz.c ctz.c))

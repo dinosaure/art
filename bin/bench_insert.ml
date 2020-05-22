@@ -1,5 +1,3 @@
-[@@@landmark "auto"]
-
 open Core_bench
 
 let insert_hashtbl (keys : Art.key array) =

@@ -1,6 +1,5 @@
 (library
  (name art)
- (modules art)
  (public_name art)
  (c_names ctz)
  (libraries fmt))

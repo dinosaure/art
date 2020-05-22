@@ -4,6 +4,7 @@ type 'a t
 type key = private string
 
 val key : string -> key
+external unsafe_key : string -> key = "%identity"
 
 val make : unit -> 'a t
 val insert : 'a t -> key -> 'a -> unit
