@@ -20,19 +20,6 @@ type key = string (* + \000 *)
 
 let ( .![] ) str i = String.unsafe_get str i
 
-(* XXX(dinosaure): [unsafe_get] is required for performance but should
-   be safe. ART uses the '\000' at the end of a string to ensure:
-
-   > keys must not be prefixes any other keys.
-
-   According layout of an OCaml string into the runtime, we have a
-   '\000' at the end (padding), at least one byte. If you are 
-   paranoniac, you can replace this snippet by:
-
-   > if v = String.length key then '\000' else String.get k v
-
-   This safe way was fuzzed and we did not get any exception. *)
-
 type 'a kind =
   | N4   : n4   kind
   | N16  : n16  kind
@@ -100,6 +87,13 @@ let pp_keys : type a. kind:a kind -> a Fmt.t = fun ~kind -> match kind with
   | N256 -> pp_n256
   | NULL -> Fmt.nop
 
+let pp_kind : type a. a kind Fmt.t = fun ppf -> function
+  | N4 -> Fmt.string ppf "N4"
+  | N16 -> Fmt.string ppf "N16"
+  | N48 -> Fmt.string ppf "N48"
+  | N256 -> Fmt.string ppf "N256"
+  | NULL -> Fmt.string ppf "NULL"
+
 let pp_record : type a. a record Fmt.t = fun ppf r ->
   match r.kind with
   | NULL -> Fmt.string ppf "<null>"
@@ -107,9 +101,10 @@ let pp_record : type a. a record Fmt.t = fun ppf r ->
     Fmt.pf ppf "{ @[<hov>prefix= %S;@ \
                          prefix_length= %d;@ \
                          count= %d;@ \
+                         kind= %a;@ \
                          value= @[<hov>%a@];@] }"
       (Bytes.unsafe_to_string r.prefix) r.prefix_length
-      r.count
+      r.count pp_kind r.kind
       (pp_keys ~kind:r.kind) r.keys
 
 let pp_header ppf (Header record) = pp_record ppf record
@@ -310,9 +305,7 @@ let find_child
       | N48 ->
         let i = record.keys.!(code) in
         if i <> 0 then res := i - 1
-      | N256 ->
-        if Char.code record.keys.!{code} <> 0
-        then res := code
+      | N256 -> res := code
       | NULL -> () )
   ; !res
 ;;
@@ -384,7 +377,7 @@ let find tree key =
              ; depth + plen )
         else depth in
       let x = find_child node key.![depth] in
-      if x = not_found
+      if x = not_found || Array.unsafe_get children x == empty_elt
       then raise Not_found
       else go (depth + 1) (Array.unsafe_get children x) in
   go 0 !(tree.tree)
