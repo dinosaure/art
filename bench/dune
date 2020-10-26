@@ -1,6 +1,7 @@
 (library
  (name art_landmarks)
  (public_name art.landmarks)
+ (modules art_landmarks)
  (c_names ctz)
  (libraries landmarks fmt)
  (preprocess (pps landmarks.ppx --auto)))
@@ -8,3 +9,17 @@
 (rule (copy ../lib/art.ml art_landmarks.ml))
 (rule (copy ../lib/art.mli art_landmarks.mli))
 (rule (copy ../lib/ctz.c ctz.c))
+
+(executable
+ (name bench)
+ (modules bench)
+ (libraries bechamel bechamel-notty notty.unix bechamel-js art))
+
+(rule
+ (targets insert.json)
+ (action (with-stdout-to %{targets} (run ./bench.exe json))))
+
+(rule
+ (targets insert.html)
+ (mode promote)
+ (action (system "%{bin:bechamel-html} < %{dep:insert.json} > %{targets}")))

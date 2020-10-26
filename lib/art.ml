@@ -6,14 +6,19 @@ module String = struct
   external unsafe_get_uint32 : string -> int -> int32 = "%caml_string_get32"
 end
 
+external ( <= ) : 'a -> 'a -> bool = "%lessequal"
+let ( <= ) (x : int) y = x <= y [@@inline]
+let min (a : int) b = if a <= b then a else b [@@inline]
+
 let ( .!{} ) = Bytes.unsafe_get
 let ( .!{}<- ) = Bytes.unsafe_set
-let ( .!() ) = Array.unsafe_get
-let ( .!()<- ) = Array.unsafe_set
+let ( .!() ) (arr : int array) i = Array.unsafe_get arr i
+let ( .!()<- ) (arr : int array) i (v : int)= Array.unsafe_set arr i v
 
 type key = string (* + \000 *)
 
-let ( .![] ) = String.unsafe_get
+
+let ( .![] ) str i = String.unsafe_get str i
 
 (* XXX(dinosaure): [unsafe_get] is required for performance but should
    be safe. ART uses the '\000' at the end of a string to ensure:
@@ -64,7 +69,9 @@ let key : string -> key = fun key ->
 
 external unsafe_key : string -> key = "%identity"
 
-type 'a t = 'a elt ref
+type 'a t =
+  { tree : 'a elt ref
+  ; null : 'a elt ref }
 
 let pp_char ppf = function
   | '\x21' .. '\x7e' as chr -> Fmt.char ppf chr
@@ -116,7 +123,7 @@ let rec pp_elt pp_value ppf = function
     Fmt.pf ppf "{:node @[<hov>hdr= @[<hov>%a@];@ children= @[<hov>%a@];@] }"
       pp_header header Fmt.(Dump.array (pp_elt pp_value)) children
 
-let pp pp_value ppf { contents; } = pp_elt pp_value ppf contents
+let pp pp_value ppf { tree; _ } = pp_elt pp_value ppf !tree
 
 external ctz : int -> int = "caml_ctz" [@@noalloc]
 
@@ -146,17 +153,16 @@ let n4_shift n4 = function
   ; n4.n0_1 <- n4.n0_1 land 0xff
   | 2 ->
     n4.n2_3 <- (n4.n2_3 lsl 8) land 0xffff
-  | 3 -> () | _ -> invalid_arg "n4_shift"
+  | _ -> ()
 
 let n4_set n4 idx chr = match idx with
   | 0 -> n4.n0_1 <- n4.n0_1 lor chr
   | 1 -> n4.n0_1 <- n4.n0_1 lor (chr lsl 8)
   | 2 -> n4.n2_3 <- n4.n2_3 lor chr
   | 3 -> n4.n2_3 <- n4.n2_3 lor (chr lsl 8)
-  | _ -> invalid_arg "n4_set"
+  | _ -> ()
 
-let n16 () : n16 record =
-  let prefix = Bytes.make 10 '\000' in
+let n16 prefix : n16 record =
   let record =
     { prefix; prefix_length= 0;
       count= 0;
@@ -166,18 +172,16 @@ let n16 () : n16 record =
 let n16_shift keys n =
   Bytes.unsafe_blit keys n keys (n + 1) (16 - (n + 1))
 
-let n48 () : n48 record =
-  let prefix = Bytes.make 10 '\000' in
-  let keys = Array.make 256 0 in
+let n48 prefix : n48 record =
+  let keys = Array.make 256 0 in (* alloc minor *)
   let record =
     { prefix; prefix_length= 0;
       count= 0;
       kind= N48; keys; } in
   record
 
-let n256 () : n256 record =
-  let prefix = Bytes.make 10 '\000' in
-  let keys = Bytes.make 256 '\000' in
+let n256 prefix : n256 record =
+  let keys = Bytes.make 256 '\000' in (* alloc minor *)
   let record =
     { prefix; prefix_length= 0;
       count= 0;
@@ -202,37 +206,34 @@ let memcmp a b ~off ~len =
 
 let copy_header : type a b. src:a record -> dst:b record -> unit = fun ~src ~dst ->
   dst.count <- src.count ;
-  Bytes.unsafe_blit src.prefix 0 dst.prefix 0 10 ;
   dst.prefix_length <- src.prefix_length
 
 let add_child_n256
   : n256 record -> 'a elt array -> char -> 'a elt -> unit
   = fun record children chr node ->
     record.count <- record.count + 1 ;
-    children.!(Char.code chr) <- node
+    Array.unsafe_set children (Char.code chr) node
 
 let add_child_n48
-  : n48 record -> (n256 record -> 'a elt array -> unit) -> 'a elt array -> char -> 'a elt -> unit
-  = fun record kgrow children chr node ->
+  : n48 record -> 'a elt ref -> null:'a elt ref -> 'a elt array -> char -> 'a elt -> unit
+  = fun record tree ~null:_ children chr node ->
     if record.count < 48
     then ( let pos = ref 0 in
-           while children.!(!pos) != empty_elt do incr pos done
+           while Array.unsafe_get children !pos != empty_elt do incr pos done
          ; record.keys.!(Char.code chr) <- (!pos + 1)
          ; record.count <- record.count + 1
-         ; children.!(!pos) <- node )
-    else ( let node256 = n256 () in
+         ; Array.unsafe_set children !pos node )
+    else ( let node256 = n256 record.prefix in
            copy_header ~src:record ~dst:node256 ;
            let children = Array.init 256 (fun i ->
                let k = record.keys.!(i) in
-               if k > 0 then children.!(k - 1) else empty_elt) in
-           add_child_n256 node256 children chr node ; kgrow node256 children )
-
-let ignore_n48 : n48 record -> 'a elt array -> unit = fun _ _ -> assert false
-let ignore_n256 : n256 record -> 'a elt array -> unit = fun _ _ -> assert false
+               if k > 0 then Array.unsafe_get children (k - 1) else empty_elt) in
+           add_child_n256 node256 children chr node ;
+           tree := Node { header= Header node256; children } )
 
 let add_child_n16
-  : n16 record -> (n48 record -> 'a elt array -> unit) -> 'a elt array -> char -> 'a elt -> unit
-  = fun record kgrow children chr node ->
+  : n16 record -> 'a elt ref -> null:'a elt ref -> 'a elt array -> char -> 'a elt -> unit
+  = fun record tree ~null children chr node ->
     if record.count < 16
     then ( let mask = (1 lsl record.count) - 1 in
            let bit = ref 0 in
@@ -245,18 +246,19 @@ let add_child_n16
                 ; Array.blit children !idx children (!idx + 1) (record.count - !idx) )
            else idx := record.count ;
            record.keys.!{!idx} <- chr ;
-           children.!(!idx) <- node ;
+           Array.unsafe_set children (!idx) node ;
            record.count <- record.count + 1 )
-    else ( let node48 = n48 () in
+    else ( let node48 = n48 record.prefix in
            for i = 0 to record.count - 1 do node48.keys.!(Char.code record.keys.!{i}) <- (i + 1) done ;
            copy_header ~src:record ~dst:node48 ;
            let children' = Array.make 48 empty_elt in
            Array.blit children 0 children' 0 16 ;
-           add_child_n48 node48 ignore_n256 children' chr node ; kgrow node48 children' )
+           add_child_n48 node48 null ~null children' chr node ;
+           tree := Node { header= Header node48; children= children' } )
 
 let add_child_n4
-  : n4 record -> (n16 record -> 'a elt array -> unit) -> 'a elt array -> char -> 'a elt -> unit
-  = fun record kgrow children chr node ->
+  : n4 record -> 'a elt ref -> null:'a elt ref -> 'a elt array -> char -> 'a elt -> unit
+  = fun record tree ~null children chr node ->
     if record.count < 4
     then ( let idx = ref 0 in
            let max = record.count in
@@ -268,9 +270,9 @@ let add_child_n4
            n4_shift record.keys !idx ;
            Array.blit children !idx children (!idx + 1) (record.count - !idx) ;
            n4_set record.keys !idx (Char.code chr) ;
-           children.!(!idx) <- node ;
+           Array.unsafe_set children (!idx) node ;
            record.count <- record.count + 1 )
-    else ( let node16 = n16 () in
+    else ( let node16 = n16 record.prefix in
            let children' = Array.make 16 empty_elt in
            Array.blit children 0 children' 0 4 ;
            node16.keys.!{0} <- Char.unsafe_chr (record.keys.n0_1 land 0xff) ;
@@ -278,7 +280,8 @@ let add_child_n4
            node16.keys.!{2} <- Char.unsafe_chr (record.keys.n2_3 land 0xff) ;
            node16.keys.!{3} <- Char.unsafe_chr (record.keys.n2_3 asr 8) ;
            copy_header ~src:record ~dst:node16 ;
-           add_child_n16 node16 ignore_n48 children' chr node ; kgrow node16 children' )
+           add_child_n16 node16 null ~null children' chr node ;
+           tree := Node { header= Header node16; children= children'; } )
 
 let not_found = (-1)
 
@@ -314,9 +317,7 @@ let find_child
   ; !res
 ;;
 
-let check_prefix
-  : type a. a record -> off:int -> string -> int -> int
-  = fun { prefix; prefix_length; _ } ~off key len ->
+let check_prefix ~prefix ~prefix_length ~off key len =
   let max = min (min prefix_length 10) (len - off) in
   let idx = ref 0 in
   while !idx < max && prefix.!{!idx} = key.![off + !idx]
@@ -325,17 +326,17 @@ let check_prefix
 let rec minimum = function
   | Leaf leaf -> leaf
   | Node { header= Header { kind= N4; _ }; children; } ->
-    minimum (children.!(0))
+    minimum (Array.unsafe_get children 0)
   | Node { header= Header { kind= N16; _ }; children; } ->
-    minimum (children.!(0))
+    minimum (Array.unsafe_get children 0)
   | Node { header= Header { kind= N48; keys; _ }; children; } ->
     let idx = ref 0 in
     while keys.!(!idx) = 0 do incr idx done ;
-    idx := keys.!(!idx) - 1 ; minimum children.!(!idx)
+    idx := keys.!(!idx) - 1 ; minimum (Array.unsafe_get children !idx)
   | Node { header= Header { kind= N256; _ }; children; } ->
     let idx = ref 0 in
-    while children.!(!idx) != empty_elt do incr idx done ;
-    minimum children.!(!idx)
+    while Array.unsafe_get children !idx != empty_elt do incr idx done ;
+    minimum (Array.unsafe_get children !idx)
   | Node { header= Header { kind= NULL; _ }; _ } -> invalid_arg "empty tree"
 
 let prefix_mismatch ({ header= Header header; _ } as node) ~off key len =
@@ -370,7 +371,7 @@ let leaf_matches { key; _ } ~off key' len' =
 
 let find tree key =
   let key_len = String.length key in
-  let rec go depth = function
+  (* alloc *) let rec go depth = function
     | Leaf leaf ->
       leaf_matches leaf key ~off:depth key_len ; leaf.value
     | Node { header= Header { kind= NULL; _ }; _ } -> raise Not_found
@@ -378,26 +379,24 @@ let find tree key =
       let plen = header.prefix_length in
       let depth =
         if plen <> 0
-        then ( let plen' = check_prefix header ~off:depth key key_len in
+        then ( let plen' = check_prefix ~prefix:header.prefix ~prefix_length:plen ~off:depth key key_len in
                if plen' <> min 10 plen then raise Not_found
              ; depth + plen )
         else depth in
       let x = find_child node key.![depth] in
       if x = not_found
       then raise Not_found
-      else go (depth + 1) children.!(x) in
-  go 0 !tree
+      else go (depth + 1) (Array.unsafe_get children x) in
+  go 0 !(tree.tree)
 
 let find_opt tree key =
   match find tree key with
   | v -> Some v
   | exception Not_found -> None
 
-let ignore_n16 : n16 record -> 'a elt array -> unit = fun _ _ -> assert false
-
-let rec insert kset elt key_a len_a value_a depth = match elt with
+let rec insert ({ tree; null; } as v) elt key_a len_a value_a depth = match elt with
   | Node { header= Header { kind= NULL; _ }; _ } ->
-    kset (Leaf { key= key_a; value= value_a; })
+    tree := (Leaf { key= key_a; value= value_a; })
   | Node ({ header= Header record; children; } as node) ->
     let plen = record.prefix_length in
     let pdiff = prefix_mismatch node ~off:depth key_a len_a in
@@ -406,48 +405,49 @@ let rec insert kset elt key_a len_a value_a depth = match elt with
     then
       let chr = key_a.![depth + plen] in
       let leaf = Leaf { key= key_a; value= value_a; } in
-      let kgrow record children = kset (Node { header= Header record; children; }) in
       match find_child node chr, record.kind with
       | -1, N256 -> add_child_n256 record children chr leaf
-      | -1, N48  -> add_child_n48  record kgrow children chr leaf
-      | -1, N16  -> add_child_n16  record kgrow children chr leaf
-      | -1, N4   -> add_child_n4   record kgrow children chr leaf
+      | -1, N48  -> add_child_n48  record tree ~null children chr leaf
+      | -1, N16  -> add_child_n16  record tree ~null children chr leaf
+      | -1, N4   -> add_child_n4   record tree ~null children chr leaf
       | idx, _ ->
-        let kset elt = children.!(idx) <- elt in
-        insert kset children.!(idx) key_a len_a value_a (depth + plen + 1)
+        let v = { v with tree= ref (Array.unsafe_get children (idx)) } in
+        insert v (Array.unsafe_get children idx) key_a len_a value_a (depth + plen + 1) ;
+        Array.unsafe_set children idx !(v.tree)
     else
       ( let node4 = n4 () in
         let children' = Array.make 4 empty_elt in
         node4.prefix_length <- pdiff
       ; Bytes.unsafe_blit record.prefix 0 node4.prefix 0 (min 10 pdiff)
       ; if plen <= 10
-        then ( add_child_n4 node4 ignore_n16 children' record.prefix.!{pdiff} elt
+        then ( add_child_n4 node4 null ~null children' record.prefix.!{pdiff} elt
              ; let plen' = plen - (pdiff + 1) in
                record.prefix_length <- plen'
              ; Bytes.unsafe_blit record.prefix (pdiff + 1) record.prefix 0 (min 10 plen') )
         else ( let plen' = plen - (pdiff + 1) in
                record.prefix_length <- plen'
              ; let bot = minimum elt in
-               add_child_n4 node4 ignore_n16 children' bot.key.![depth + pdiff] elt
+               add_child_n4 node4 null ~null children' bot.key.![depth + pdiff] elt
              ; Bytes.blit_string bot.key (depth + pdiff + 1) record.prefix 0 (min 10 plen') )
-      ; add_child_n4 node4 ignore_n16 children' key_a.![depth + pdiff] (Leaf { key= key_a; value= value_a; })
-      ; kset (Node { header= Header node4; children= children'; }) )
+      ; add_child_n4 node4 null ~null children' key_a.![depth + pdiff] (Leaf { key= key_a; value= value_a; })
+      ; tree := (Node { header= Header node4; children= children'; }) )
   | Leaf leaf ->
     try
-      leaf_matches leaf ~off:depth key_a len_a ; kset (Leaf { leaf with value= value_a })
+      leaf_matches leaf ~off:depth key_a len_a ; tree := (Leaf { leaf with value= value_a })
     with Not_found ->
       let node4 = n4 () in
       let children = Array.make 4 empty_elt in
       let plon = longest_common_prefix ~off:depth leaf.key key_a in
       node4.prefix_length <- plon ;
       Bytes.blit_string key_a depth node4.prefix 0 (min 10 plon) ;
-      add_child_n4 node4 ignore_n16 children leaf.key.![depth + plon] elt ;
-      add_child_n4 node4 ignore_n16 children key_a.![depth + plon] (Leaf { key= key_a; value= value_a; }) ;
-      kset (Node { header= Header node4; children; })
+      add_child_n4 node4 null ~null children leaf.key.![depth + plon] elt ;
+      add_child_n4 node4 null ~null children key_a.![depth + plon] (Leaf { key= key_a; value= value_a; }) ;
+      tree := (Node { header= Header node4; children; })
 ;;
 
 let insert tree key value =
-  let kset root = tree := root in
-  insert kset !tree key (String.length key) value 0
+  insert tree !(tree.tree) key (String.length key) value 0
 
-let make = fun () -> ref empty_elt
+let make () =
+  { tree= ref empty_elt
+  ; null= ref empty_elt }
