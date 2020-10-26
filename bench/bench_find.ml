@@ -23,7 +23,6 @@ let random_normal n =
   Array.map (abs <.> Float.to_int <.> ( *. ) random_max) values
 
 let random_string ln =
-  Format.eprintf ">> %d.\n%!" ln ;
   let rs = Bytes.create ln in
   let ic = open_in "/dev/urandom" in
   really_input ic rs 0 ln ;
@@ -34,18 +33,18 @@ let random_string ln =
 let db = Array.map (fun v -> random_string v, v) (random_normal 1000)
 
 let art = Art.make ()
-let () = Array.iter (fun (k, v) -> Art.insert tree (Art.unsafe_key k) v) db
+let () = Array.iter (fun (k, v) -> Art.insert art (Art.unsafe_key k) v) db
 
 let tbl = Hashtbl.create 0x100
 let () = Array.iter (fun (k, v) -> Hashtbl.add tbl k v) db
 
 let test0 =
   Test.make ~name:"art" @@ Staged.stage @@ fun () ->
-  Array.iter (fun (k, _) -> let _ = Art.find art k) db
+  Array.iter (fun (k, _) -> let _ = Art.find art (Art.unsafe_key k) in ()) db
 
 let test1 =
   Test.make ~name:"hashtbl" @@ Staged.stage @@ fun () ->
-  Array.iter (fun (k ,_) -> let _ = Hashtbl.find tbl k) db
+  Array.iter (fun (k ,_) -> let _ = Hashtbl.find tbl k in ()) db
 
 let test = Test.make_grouped ~name:"insert" [ test0; test1; ]
 

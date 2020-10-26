@@ -350,7 +350,7 @@ let prefix_mismatch ({ header= Header header; _ } as node) ~off key len =
   then
     ( let leaf = minimum (Node node) in
       let max = (min (String.length leaf.key) len) - off in
-      while !idx < max 
+      while !idx < max - 4
             && String.unsafe_get_uint32 leaf.key (off + !idx) = String.unsafe_get_uint32 key (off + !idx)
       do idx := !idx + 4 done ;
       while !idx < max 
