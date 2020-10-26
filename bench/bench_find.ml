@@ -1,9 +1,25 @@
+let () = Printexc.record_backtrace true
+
 open Bechamel
 open Toolkit
 
+external random_seed : unit -> int array = "caml_sys_random_seed"
+
+let seed = "1NYFZiWgaFHf7EhBe6QhvABW5lKcCYs5vcnFi3YsqOU="
+let seed = Base64.decode_exn seed
+let seed =
+  let res = Array.make (String.length seed / 2) 0 in
+  for i = 0 to (String.length seed / 2) - 1
+  do res.(i) <- (Char.code seed.[i * 2] lsl 8) lor (Char.code seed.[i * 2 + 1]) done ;
+  res
+
+let () =
+  let random_seed = seed in
+  Random.full_init random_seed
+
 let ( <.> ) f g = fun x -> f (g x)
 
-let random_max = 32767.
+let random_max = 16.
 
 let random_normal n =
   let m = n + (n mod 2) in
@@ -30,17 +46,22 @@ let random_string ln =
   for i = 0 to ln - 1 do if Bytes.get rs i = '\000' then Bytes.set rs i '\001' done ;
   Bytes.unsafe_to_string rs
 
-let db = Array.map (fun v -> random_string v, v) (random_normal 1000)
+let db = Array.map (fun v -> random_string (succ v), v) (random_normal 1000)
 
 let art = Art.make ()
-let () = Array.iter (fun (k, v) -> Art.insert art (Art.unsafe_key k) v) db
+let () = Array.iter
+  (fun (k, v) -> Art.insert art (Art.unsafe_key k) v ;
+                 match Art.find art (Art.unsafe_key k) with
+                 | v' -> assert (v = v')
+                 | exception Not_found -> assert false) db
 
 let tbl = Hashtbl.create 0x100
 let () = Array.iter (fun (k, v) -> Hashtbl.add tbl k v) db
 
 let test0 =
   Test.make ~name:"art" @@ Staged.stage @@ fun () ->
-  Array.iter (fun (k, _) -> let _ = Art.find art (Art.unsafe_key k) in ()) db
+  Array.iter (fun (k, _) ->
+          let _ = Art.find art (Art.unsafe_key k) in ()) db
 
 let test1 =
   Test.make ~name:"hashtbl" @@ Staged.stage @@ fun () ->

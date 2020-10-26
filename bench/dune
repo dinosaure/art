@@ -27,7 +27,7 @@
 (executable
  (name bench_find)
  (modules bench_find)
- (libraries bechamel bechamel-notty notty.unix bechamel-js art))
+ (libraries base64 bechamel bechamel-notty notty.unix bechamel-js art))
 
 (rule
  (targets find.json)
