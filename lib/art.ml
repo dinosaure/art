@@ -362,25 +362,26 @@ let leaf_matches { key; _ } ~off key' len' =
   if String.length key <> len' then raise Not_found ;
   if len' - off > 0 then memcmp key key' ~off ~len:(len' - off)
 
+let rec _find ~key ~key_len depth = function
+  | Leaf leaf ->
+    leaf_matches leaf key ~off:depth key_len ; leaf.value
+  | Node { header= Header { kind= NULL; _ }; _ } -> raise Not_found
+  | Node ({ header= Header header; children; } as node) ->
+    let plen = header.prefix_length in
+    let depth =
+      if plen <> 0
+      then ( let plen' = check_prefix ~prefix:header.prefix ~prefix_length:plen ~off:depth key key_len in
+             if plen' <> min 10 plen then raise Not_found
+           ; depth + plen )
+      else depth in
+    let x = find_child node key.![depth] in
+    if x = not_found || Array.unsafe_get children x == empty_elt
+    then raise Not_found
+    else _find ~key ~key_len (depth + 1) (Array.unsafe_get children x)
+
 let find tree key =
   let key_len = String.length key in
-  (* alloc *) let rec go depth = function
-    | Leaf leaf ->
-      leaf_matches leaf key ~off:depth key_len ; leaf.value
-    | Node { header= Header { kind= NULL; _ }; _ } -> raise Not_found
-    | Node ({ header= Header header; children; } as node) ->
-      let plen = header.prefix_length in
-      let depth =
-        if plen <> 0
-        then ( let plen' = check_prefix ~prefix:header.prefix ~prefix_length:plen ~off:depth key key_len in
-               if plen' <> min 10 plen then raise Not_found
-             ; depth + plen )
-        else depth in
-      let x = find_child node key.![depth] in
-      if x = not_found || Array.unsafe_get children x == empty_elt
-      then raise Not_found
-      else go (depth + 1) (Array.unsafe_get children x) in
-  go 0 !(tree.tree)
+  _find ~key ~key_len 0 !(tree.tree)
 
 let find_opt tree key =
   match find tree key with
