@@ -11,15 +11,29 @@
 (rule (copy ../lib/ctz.c ctz.c))
 
 (executable
- (name bench)
- (modules bench)
+ (name bench_insert)
+ (modules bench_insert)
  (libraries bechamel bechamel-notty notty.unix bechamel-js art))
 
 (rule
  (targets insert.json)
- (action (with-stdout-to %{targets} (run ./bench.exe json))))
+ (action (with-stdout-to %{targets} (run ./bench_insert.exe json))))
 
 (rule
  (targets insert.html)
  (mode promote)
  (action (system "%{bin:bechamel-html} < %{dep:insert.json} > %{targets}")))
+
+(executable
+ (name bench_find)
+ (modules bench_find)
+ (libraries bechamel bechamel-notty notty.unix bechamel-js art))
+
+(rule
+ (targets find.json)
+ (action (with-stdout-to %{targets} (run ./bench_find.exe json))))
+
+(rule
+ (targets find.html)
+ (mode promote)
+ (action (system "%{bin:bechamel-html} < %{dep:find.json} > %{targets}")))
