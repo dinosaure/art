@@ -20,9 +20,10 @@ let random_normal n =
     values.(i * 2) <- !x *. f ;
     values.((i * 2) + 1) <- !y *. f
   done ;
-  Array.map (Float.to_int <.> ( *. ) random_max) values
+  Array.map (abs <.> Float.to_int <.> ( *. ) random_max) values
 
 let random_string ln =
+  Format.eprintf ">> %d.\n%!" ln ;
   let rs = Bytes.create ln in
   let ic = open_in "/dev/urandom" in
   really_input ic rs 0 ln ;
