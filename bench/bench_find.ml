@@ -67,7 +67,7 @@ let test1 =
   Test.make ~name:"hashtbl" @@ Staged.stage @@ fun () ->
   Array.iter (fun (k ,_) -> let _ = Hashtbl.find tbl k in ()) db
 
-let test = Test.make_grouped ~name:"insert" [ test0; test1; ]
+let test = Test.make_grouped ~name:"find" [ test0; test1; ]
 
 let benchmark () =
   let ols =
