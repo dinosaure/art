@@ -1,0 +1,12 @@
+(executable
+ (name endian)
+ (modules endian)
+ (foreign_stubs
+  (language c)
+  (names endian))
+ (libraries dune-configurator))
+
+(executable
+ (name sse)
+ (modules sse)
+ (libraries dune-configurator))

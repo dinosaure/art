@@ -12,11 +12,8 @@ let min (a : int) b = if a <= b then a else b [@@inline]
 
 let ( .!{} ) = Bytes.unsafe_get
 let ( .!{}<- ) = Bytes.unsafe_set
-let ( .!() ) (arr : int array) i = Array.unsafe_get arr i
-let ( .!()<- ) (arr : int array) i (v : int)= Array.unsafe_set arr i v
 
 type key = string (* + \000 *)
-
 
 let ( .![] ) str i = String.unsafe_get str i
 
@@ -30,11 +27,11 @@ and n4 =
   { mutable n0_1 : int
   ; mutable n2_3 : int }
 and n16 = bytes
-and n48 = int array
-and n256 = bytes
+and n48 = bytes
+and n256 = N256_Key
 
 type 'a record =
-  { prefix : bytes 
+  { prefix : bytes
   ; mutable prefix_length : int
   ; mutable count : int
   ; kind : 'a kind
@@ -73,12 +70,9 @@ let pp_n16 ppf keys =
     Fmt.(Dump.array pp_char)
     (Array.init 16 (fun i -> keys.!{i}))
 
-let pp_n48 = Fmt.(Dump.array int)
+let pp_n48 _ppf _keys = ()
 
-let pp_n256 ppf keys =
-  Fmt.pf ppf "%a"
-    Fmt.(Dump.array pp_char)
-    (Array.init 256 (fun i -> keys.!{i}))
+let pp_n256 _ppf _keys = ()
 
 let pp_keys : type a. kind:a kind -> a Fmt.t = fun ~kind -> match kind with
   | N4 -> pp_n4
@@ -168,7 +162,7 @@ let n16_shift keys n =
   Bytes.unsafe_blit keys n keys (n + 1) (16 - (n + 1))
 
 let n48 prefix : n48 record =
-  let keys = Array.make 256 0 in (* alloc minor *)
+  let keys = Bytes.make 256 '\048' in
   let record =
     { prefix; prefix_length= 0;
       count= 0;
@@ -176,11 +170,10 @@ let n48 prefix : n48 record =
   record
 
 let n256 prefix : n256 record =
-  let keys = Bytes.make 256 '\000' in (* alloc minor *)
   let record =
     { prefix; prefix_length= 0;
       count= 0;
-      kind= N256; keys; } in
+      kind= N256; keys= N256_Key; } in
   record
 
 let memcmp a b ~off ~len =
@@ -210,25 +203,25 @@ let add_child_n256
     Array.unsafe_set children (Char.code chr) node
 
 let add_child_n48
-  : n48 record -> 'a elt ref -> null:'a elt ref -> 'a elt array -> char -> 'a elt -> unit
-  = fun record tree ~null:_ children chr node ->
+  : n48 record -> 'a elt ref -> 'a elt array -> char -> 'a elt -> unit
+  = fun record tree children chr node ->
     if record.count < 48
     then ( let pos = ref 0 in
            while Array.unsafe_get children !pos != empty_elt do incr pos done
-         ; record.keys.!(Char.code chr) <- (!pos + 1)
+         ; record.keys.!{Char.code chr} <- Char.unsafe_chr !pos
          ; record.count <- record.count + 1
          ; Array.unsafe_set children !pos node )
     else ( let node256 = n256 record.prefix in
            copy_header ~src:record ~dst:node256 ;
            let children = Array.init 256 (fun i ->
-               let k = record.keys.!(i) in
-               if k > 0 then Array.unsafe_get children (k - 1) else empty_elt) in
+               let k = Char.code (record.keys.!{i}) in
+               if k <> 48 then Array.unsafe_get children k else empty_elt) in
            add_child_n256 node256 children chr node ;
            tree := Node { header= Header node256; children } )
 
 let add_child_n16
-  : n16 record -> 'a elt ref -> null:'a elt ref -> 'a elt array -> char -> 'a elt -> unit
-  = fun record tree ~null children chr node ->
+  : n16 record -> 'a elt ref -> 'a elt array -> char -> 'a elt -> unit
+  = fun record tree children chr node ->
     if record.count < 16
     then ( let mask = (1 lsl record.count) - 1 in
            let bit = ref 0 in
@@ -244,16 +237,17 @@ let add_child_n16
            Array.unsafe_set children (!idx) node ;
            record.count <- record.count + 1 )
     else ( let node48 = n48 record.prefix in
-           for i = 0 to record.count - 1 do node48.keys.!(Char.code record.keys.!{i}) <- (i + 1) done ;
+           for i = 0 to record.count - 1 do node48.keys.!{Char.code record.keys.!{i}} <- Char.unsafe_chr i done ;
            copy_header ~src:record ~dst:node48 ;
            let children' = Array.make 48 empty_elt in
            Array.blit children 0 children' 0 16 ;
-           add_child_n48 node48 null ~null children' chr node ;
+           let null = ref empty_elt in
+           add_child_n48 node48 null children' chr node ;
            tree := Node { header= Header node48; children= children' } )
 
 let add_child_n4
-  : n4 record -> 'a elt ref -> null:'a elt ref -> 'a elt array -> char -> 'a elt -> unit
-  = fun record tree ~null children chr node ->
+  : n4 record -> 'a elt ref -> 'a elt array -> char -> 'a elt -> unit
+  = fun record tree children chr node ->
     if record.count < 4
     then ( let idx = ref 0 in
            let max = record.count in
@@ -275,7 +269,8 @@ let add_child_n4
            node16.keys.!{2} <- Char.unsafe_chr (record.keys.n2_3 land 0xff) ;
            node16.keys.!{3} <- Char.unsafe_chr (record.keys.n2_3 asr 8) ;
            copy_header ~src:record ~dst:node16 ;
-           add_child_n16 node16 null ~null children' chr node ;
+           let null = ref empty_elt in
+           add_child_n16 node16 null children' chr node ;
            tree := Node { header= Header node16; children= children'; } )
 
 let not_found = (-1)
@@ -298,13 +293,14 @@ let find_child
         else if m > 3 && (record.keys.n2_3 asr 8) land 0xff = code
         then res := 3
       | N16 ->
+        (* TODO(dinosaure): can be replaced by SSE instr. *)
         let bit = ref 0 in
         for i = 0 to 15 do if record.keys.!{i} = chr then bit := !bit lor (1 lsl i) done ;
         let mask = (1 lsl record.count) - 1 in
         if !bit land mask <> 0 then res := ctz !bit
       | N48 ->
-        let i = record.keys.!(code) in
-        if i <> 0 then res := i - 1
+        let i = Char.code (record.keys.!{code}) in
+        if i <> 48 then res := i
       | N256 -> res := code
       | NULL -> () )
   ; !res
@@ -324,8 +320,8 @@ let rec minimum = function
     minimum (Array.unsafe_get children 0)
   | Node { header= Header { kind= N48; keys; _ }; children; } ->
     let idx = ref 0 in
-    while keys.!(!idx) = 0 do incr idx done ;
-    idx := keys.!(!idx) - 1 ; minimum (Array.unsafe_get children !idx)
+    while keys.!{!idx} = '\048' do incr idx done ;
+    idx := Char.code keys.!{!idx} ; minimum (Array.unsafe_get children !idx)
   | Node { header= Header { kind= N256; _ }; children; } ->
     let idx = ref 0 in
     while Array.unsafe_get children !idx != empty_elt do incr idx done ;
@@ -346,7 +342,7 @@ let prefix_mismatch ({ header= Header header; _ } as node) ~off key len =
       while !idx < max - 4
             && String.unsafe_get_uint32 leaf.key (off + !idx) = String.unsafe_get_uint32 key (off + !idx)
       do idx := !idx + 4 done ;
-      while !idx < max 
+      while !idx < max
             && leaf.key.![off + !idx] = key.![off + !idx]
       do incr idx done ) ;
   !idx
@@ -361,6 +357,7 @@ let longest_common_prefix ~off k1 k2 =
 let leaf_matches { key; _ } ~off key' len' =
   if String.length key <> len' then raise Not_found ;
   if len' - off > 0 then memcmp key key' ~off ~len:(len' - off)
+(* TODO(dinosaure): check all the key, (see optimistic match). *)
 
 let rec _find ~key ~key_len depth = function
   | Leaf leaf ->
@@ -388,7 +385,7 @@ let find_opt tree key =
   | v -> Some v
   | exception Not_found -> None
 
-let rec insert ({ tree; null; } as v) elt key_a len_a value_a depth = match elt with
+let rec insert ({ tree; _ } as v) elt key_a len_a value_a depth = match elt with
   | Node { header= Header { kind= NULL; _ }; _ } ->
     tree := (Leaf { key= key_a; value= value_a; })
   | Node ({ header= Header record; children; } as node) ->
@@ -401,9 +398,9 @@ let rec insert ({ tree; null; } as v) elt key_a len_a value_a depth = match elt 
       let leaf = Leaf { key= key_a; value= value_a; } in
       match find_child node chr, record.kind with
       | -1, N256 -> add_child_n256 record children chr leaf
-      | -1, N48  -> add_child_n48  record tree ~null children chr leaf
-      | -1, N16  -> add_child_n16  record tree ~null children chr leaf
-      | -1, N4   -> add_child_n4   record tree ~null children chr leaf
+      | -1, N48  -> add_child_n48  record tree children chr leaf
+      | -1, N16  -> add_child_n16  record tree children chr leaf
+      | -1, N4   -> add_child_n4   record tree children chr leaf
       | idx, _ ->
         let v = { v with tree= ref (Array.unsafe_get children (idx)) } in
         insert v (Array.unsafe_get children idx) key_a len_a value_a (depth + plen + 1) ;
@@ -411,19 +408,20 @@ let rec insert ({ tree; null; } as v) elt key_a len_a value_a depth = match elt 
     else
       ( let node4 = n4 () in
         let children' = Array.make 4 empty_elt in
+        let null = ref empty_elt in
         node4.prefix_length <- pdiff
       ; Bytes.unsafe_blit record.prefix 0 node4.prefix 0 (min 10 pdiff)
       ; if plen <= 10
-        then ( add_child_n4 node4 null ~null children' record.prefix.!{pdiff} elt
+        then ( add_child_n4 node4 null children' record.prefix.!{pdiff} elt
              ; let plen' = plen - (pdiff + 1) in
                record.prefix_length <- plen'
              ; Bytes.unsafe_blit record.prefix (pdiff + 1) record.prefix 0 (min 10 plen') )
         else ( let plen' = plen - (pdiff + 1) in
                record.prefix_length <- plen'
              ; let bot = minimum elt in
-               add_child_n4 node4 null ~null children' bot.key.![depth + pdiff] elt
+               add_child_n4 node4 null children' bot.key.![depth + pdiff] elt
              ; Bytes.blit_string bot.key (depth + pdiff + 1) record.prefix 0 (min 10 plen') )
-      ; add_child_n4 node4 null ~null children' key_a.![depth + pdiff] (Leaf { key= key_a; value= value_a; })
+      ; add_child_n4 node4 null children' key_a.![depth + pdiff] (Leaf { key= key_a; value= value_a; })
       ; tree := (Node { header= Header node4; children= children'; }) )
   | Leaf leaf ->
     try
@@ -431,11 +429,12 @@ let rec insert ({ tree; null; } as v) elt key_a len_a value_a depth = match elt 
     with Not_found ->
       let node4 = n4 () in
       let children = Array.make 4 empty_elt in
+      let null = ref empty_elt in
       let plon = longest_common_prefix ~off:depth leaf.key key_a in
       node4.prefix_length <- plon ;
       Bytes.blit_string key_a depth node4.prefix 0 (min 10 plon) ;
-      add_child_n4 node4 null ~null children leaf.key.![depth + plon] elt ;
-      add_child_n4 node4 null ~null children key_a.![depth + plon] (Leaf { key= key_a; value= value_a; }) ;
+      add_child_n4 node4 null children leaf.key.![depth + plon] elt ;
+      add_child_n4 node4 null children key_a.![depth + plon] (Leaf { key= key_a; value= value_a; }) ;
       tree := (Node { header= Header node4; children; })
 ;;
 
@@ -445,3 +444,44 @@ let insert tree key value =
 let make () =
   { tree= ref empty_elt
   ; null= ref empty_elt }
+
+[@@@warning "-32"]
+
+let remove_child_n256
+  : n256 record -> 'a elt ref -> 'a elt array -> char -> unit
+  = fun record tree children chr ->
+    children.(Char.code chr) <- empty_elt ;
+    record.count <- record.count - 1 ;
+    if record.count = 37
+    then ( let node48 = n48 record.prefix in
+           copy_header ~src:record ~dst:node48 ;
+           let children' = Array.make 48 empty_elt in
+           let pos = ref 0 in
+           for i = 0 to 255 do
+             if children.(i) != empty_elt
+             then ( children'.(!pos) <- children.(i)
+                  ; node48.keys.!{i} <- Char.unsafe_chr !pos
+                  ; incr pos )
+           done ;
+           tree := Node { header= Header node48; children= children' } )
+
+let remove_child_n48
+  : n48 record -> 'a elt ref -> 'a elt array -> char -> unit
+  = fun record tree children chr ->
+    let pos = Char.code record.keys.!{Char.code chr} in
+    record.keys.!{Char.code chr} <- '\048' ;
+    children.(pos) <- empty_elt ;
+    record.count <- record.count - 1 ;
+    if record.count = 12
+    then ( let node16 = n16 record.prefix in
+           let children' = Array.make 16 empty_elt in
+           copy_header ~src:record ~dst:node16 ;
+           let child = ref 0 in
+           for i = 0 to 255 do
+             let pos = Char.code record.keys.!{i} in
+             if pos <> 48
+             then ( node16.keys.!{!child} <- Char.chr i
+                  ; children'.(!child) <- children.(pos)
+                  ; incr child )
+           done ;
+           tree := Node { header= Header node16; children= children' }  )

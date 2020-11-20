@@ -161,6 +161,20 @@ let test10 =
   Alcotest.(check int) "N48 -> N256" (Art.find tree (Art.key "O\128)\231\192O\184f{\223\232")) 51
 ;;
 
+let test11 =
+  Alcotest.test_case "test11" `Quick @@ fun () ->
+  let tree = Art.make () in
+  Art.insert tree (Art.key "foo") 1 ;
+  Alcotest.(check int) "foo" (Art.find tree (Art.key "foo")) 1 ;
+  Art.insert tree (Art.key "fo") 2 ;
+  Alcotest.(check int) "foo" (Art.find tree (Art.key "foo")) 1 ;
+  Alcotest.(check int) "fo" (Art.find tree (Art.key "fo")) 2 ;
+  Art.insert tree (Art.key "foobar") 3 ;
+  Alcotest.(check int) "foo" (Art.find tree (Art.key "foo")) 1 ;
+  Alcotest.(check int) "fo" (Art.find tree (Art.key "fo")) 2 ;
+  Alcotest.(check int) "foobar" (Art.find tree (Art.key "foobar")) 3
+;;
+
 let () =
   Alcotest.run "art"
     [ "art", [ test01
@@ -172,4 +186,5 @@ let () =
              ; test07
              ; test08
              ; test09
-             ; test10 ] ]
+             ; test10
+             ; test11 ] ]

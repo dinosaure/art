@@ -1,5 +1,46 @@
 (library
  (name art)
+ (modules art)
  (public_name art)
- (c_names ctz)
- (libraries fmt))
+ (libraries fmt)
+ (ocamlopt_flags -O3 -unbox-closures -unbox-closures-factor 20)
+ (foreign_stubs
+  (language c)
+  (names ctz)))
+
+(library
+ (name rowex)
+ (modules rowex)
+ (public_name rowex)
+ (libraries logs)
+ (ocamlopt_flags -O3 -unbox-closures -unbox-closures-factor 20)
+ (foreign_stubs
+  (language c)
+  (flags
+   (:standard)
+   (:include sse.sexp))
+  (names rowex)))
+
+(library
+ (name persistent)
+ (modules persistent)
+ (public_name rowex.persistent)
+ (libraries rowex)
+ (ocamlopt_flags -O3 -unbox-closures -unbox-closures-factor 20)
+ (foreign_stubs
+  (language c)
+  (flags
+   (:standard)
+   (:include endian.sexp)
+   (:include sse.sexp))
+  (names persistent)))
+
+(rule
+ (targets endian.sexp)
+ (action
+  (run ../conf/endian.exe)))
+
+(rule
+ (targets sse.sexp)
+ (action
+  (run ../conf/sse.exe)))

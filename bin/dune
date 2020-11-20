@@ -1,3 +1,6 @@
 (executable
- (name bench_insert)
- (libraries core_bench art))
+ (name rwx)
+ (foreign_stubs
+  (language c)
+  (names getpagesize))
+ (libraries unix fmt logs.fmt fmt.tty astring mmap rowex.persistent))
