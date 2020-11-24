@@ -34,7 +34,7 @@ let neon_support lst =
   | _ -> false
 
 let _ =
-  let c = Configurator.V1.create "sse" ~log:(Format.eprintf "~ %s\n%!") in
+  let c = Configurator.V1.create "sse" in
   let defines = Configurator.V1.C_define.import
     c ~includes:[]
     [ (_m_amd64, Switch)
