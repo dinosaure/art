@@ -55,20 +55,45 @@ let mmu_of_optional_file = function
   | Some mmu -> mmu
   | None -> Rresult.R.failwith_error_msg (Lazy.force random_index)
 
+let find mmu root key = run mmu (Rowex.find root key)
+
 let test01 =
   Alcotest.test_case "test01" `Quick @@ fun file ->
   let mmu = mmu_of_optional_file file in
   let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
-  let root = Addr.of_int_rdwr root in
-  run mmu (Rowex.insert root "abc" 1) ;
-  Alcotest.(check int) "abc"   (run mmu (Rowex.find (Addr.to_rdonly root) "abc"))   1 ;
-  run mmu (Rowex.insert root "ab" 2) ;
-  Alcotest.(check int) "abc"   (run mmu (Rowex.find (Addr.to_rdonly root) "abc"))   1 ;
-  Alcotest.(check int) "ab"    (run mmu (Rowex.find (Addr.to_rdonly root) "ab"))    2 ;
-  run mmu (Rowex.insert root "abcde" 3) ;
-  Alcotest.(check int) "abc"   (run mmu (Rowex.find (Addr.to_rdonly root) "abc"))   1 ;
-  Alcotest.(check int) "ab"    (run mmu (Rowex.find (Addr.to_rdonly root) "ab"))    2 ;
-  Alcotest.(check int) "abcde" (run mmu (Rowex.find (Addr.to_rdonly root) "abcde")) 3
+  let root_rdwr = Addr.of_int_rdwr root in
+  let root_rd   = Addr.of_int_rdonly root in
+  run mmu (Rowex.insert root_rdwr "abc" 1) ;
+  Alcotest.(check int) "abc"   (find mmu root_rd "abc")   1 ;
+  run mmu (Rowex.insert root_rdwr "ab" 2) ;
+  Alcotest.(check int) "abc"   (find mmu root_rd "abc")   1 ;
+  Alcotest.(check int) "ab"    (find mmu root_rd "ab")    2 ;
+  run mmu (Rowex.insert root_rdwr "abcde" 3) ;
+  Alcotest.(check int) "abc"   (find mmu root_rd "abc")   1 ;
+  Alcotest.(check int) "ab"    (find mmu root_rd "ab")    2 ;
+  Alcotest.(check int) "abcde" (find mmu root_rd "abcde") 3
+;;
+
+let test02 =
+  Alcotest.test_case "test02" `Quick @@ fun file ->
+  let mmu = mmu_of_optional_file file in
+  let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
+  let root_rdwr = Addr.of_int_rdwr root in
+  let root_rd   = Addr.of_int_rdonly root in
+  run mmu (Rowex.insert root_rdwr "a0" 0) ;
+  run mmu (Rowex.insert root_rdwr "a1" 1) ;
+  run mmu (Rowex.insert root_rdwr "a2" 2) ;
+  run mmu (Rowex.insert root_rdwr "a3" 3) ;
+  Alcotest.(check int) "a0" (find mmu root_rd "a0") 0 ;
+  Alcotest.(check int) "a1" (find mmu root_rd "a1") 1 ;
+  Alcotest.(check int) "a2" (find mmu root_rd "a2") 2 ;
+  Alcotest.(check int) "a3" (find mmu root_rd "a3") 3 ;
+  run mmu (Rowex.insert root_rdwr "a4" 4) ;
+  Alcotest.(check int) "a0" (find mmu root_rd "a0") 0 ;
+  Alcotest.(check int) "a1" (find mmu root_rd "a1") 1 ;
+  Alcotest.(check int) "a2" (find mmu root_rd "a2") 2 ;
+  Alcotest.(check int) "a3" (find mmu root_rd "a3") 3 ;
+  Alcotest.(check int) "a4" (find mmu root_rd "a4") 4
 ;;
 
 open Cmdliner
@@ -86,4 +111,4 @@ let filename =
   Arg.(value & opt (some filename) None & info [ "index" ] ~doc)
 
 let () = Alcotest.run_with_args "rowex" filename
-           [ "simple", [ test01 ] ]
+           [ "simple", [ test01; test02 ] ]
