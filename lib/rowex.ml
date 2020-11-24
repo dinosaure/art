@@ -330,7 +330,7 @@ let _header_length = _header_compact_count + 2
 let _bits_kind = Sys.word_size - 3
 
 let _n4_kind   = 0b00
-let _n16_kind  = 0b10
+let _n16_kind  = 0b01
 let _n48_kind  = 0b10
 let _n256_kind = 0b11
 
@@ -665,7 +665,7 @@ let add_child_n16 (N16 addr) k value =
   then return false
   else
     let* () = atomic_set ~memory_order:Release
-        Addr.(addr + _header_length + 16 * (compact_count * Addr.length))
+        Addr.(addr + _header_length + 16 + (compact_count * Addr.length))
         Value.addr_rd value in
     let* () = atomic_set ~memory_order:Release
         Addr.(addr + _header_length + compact_count)
