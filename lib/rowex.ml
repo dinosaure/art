@@ -117,27 +117,27 @@ module rec Leaf : sig
 end = struct
   type t = int
 
-  let prj x = x asr 1
-  let inj x = (x lsl 1) lor 1
+  let prj x = x asr 1 [@@inline always]
+  let inj x = (x lsl 1) lor 1 [@@inline always]
 end
 
 and Addr : sig
-  type -'a t = private int constraint 'a = [< `Rd | `Wr ]
+  type -'a t = private int constraint 'a = [< `Rd | `Wr ] [@@immediate]
 
   val length : int
 
   val null : [ `Rd ] t
   val is_null : 'a t -> bool
 
-  val of_int_rdonly : int -> [ `Rd ] t
-  val of_int_wronly : int -> [ `Wr ] t
-  val of_int_rdwr : int -> [ `Rd | `Wr ] t
+  external of_int_rdonly : int -> [ `Rd ] t = "%identity"
+  external of_int_wronly : int -> [ `Wr ] t = "%identity"
+  external of_int_rdwr : int -> [ `Rd | `Wr ] t = "%identity"
 
-  val to_wronly : [> `Wr ] t -> [ `Wr ] t
-  val to_rdonly : [> `Rd ] t -> [ `Rd ] t
+  external to_wronly : [> `Wr ] t -> [ `Wr ] t = "%identity"
+  external to_rdonly : [> `Rd ] t -> [ `Rd ] t = "%identity"
 
-  val unsafe_to_leaf : 'a t -> Leaf.t
-  val unsafe_of_leaf : Leaf.t -> 'a t
+  external unsafe_to_leaf : 'a t -> Leaf.t = "%identity"
+  external unsafe_of_leaf : Leaf.t -> 'a t = "%identity"
 
   val ( + ) : 'a t -> int -> 'a t
 end = struct
@@ -146,18 +146,19 @@ end = struct
   let length = Sys.word_size / 8
 
   let null = 1 lsl (Sys.word_size - 2)
-  let is_null x = x = null
+  let is_null x = x = null [@@inline always]
 
-  let of_int_rdonly x = (* assert (x land null = 0) *) x
-  let of_int_wronly x = (* assert (x land null = 0) *) x
-  let of_int_rdwr x = x
-  let to_wronly x = x
-  let to_rdonly x = x
+  external of_int_rdonly : int -> [ `Rd ] t = "%identity"
+  external of_int_wronly : int -> [ `Wr ] t = "%identity"
+  external of_int_rdwr : int -> [ `Rd | `Wr ] t = "%identity"
 
-  let unsafe_to_leaf x = x
-  let unsafe_of_leaf x = x
+  external to_wronly : [> `Wr ] t -> [ `Wr ] t = "%identity"
+  external to_rdonly : [> `Rd ] t -> [ `Rd ] t = "%identity"
 
-  let ( + ) addr v = addr + v
+  external unsafe_to_leaf : 'a t -> Leaf.t = "%identity"
+  external unsafe_of_leaf : Leaf.t -> 'a t = "%identity"
+
+  let ( + ) addr v = addr + v [@@inline always]
 end
 
 let string_of_null_addr = beintnat_to_string (Addr.null :> int)
@@ -334,7 +335,7 @@ let _n16_kind  = 0b01
 let _n48_kind  = 0b10
 let _n256_kind = 0b11
 
-let get_version addr = atomic_get Addr.(addr + _header_kind) Value.beintnat
+let get_version addr = atomic_get Addr.(addr + _header_kind) Value.beintnat [@@inline]
 
 let get_type addr =
   let* value = atomic_get ~memory_order:Relaxed Addr.(addr + _header_kind) Value.beintnat in
@@ -342,6 +343,15 @@ let get_type addr =
 [@@inline]
 
 let get_prefix (addr : [> `Rd ] Addr.t) =
+  (* XXX(dinosaure): may be we can optimize this part with [Value.beintnat] for
+     a 64-bits architecture. However, we assume that 1 bit will disappear.
+     Considering little-endian architecture, we probably should start with
+     [prefix_count] and, then, [prefix]. [prefix_count] can ~safely~ fit into
+     31 bits and [prefix] will use the rest (32 bits).
+
+     By this way, we permit to use a native integer instead a boxed [int64].
+
+     TODO! *)
   let* value = atomic_get Addr.(addr + _header_prefix) Value.beint64 in
   let p0 = Int64.(to_int (logand value 0xffffL)) in
   let p1 = Int64.(to_int (logand (shift_right value 16) 0xffffL)) in

@@ -1,18 +1,18 @@
 (** Persistent implementation of Adaptive Radix Tree. *)
 
 module Addr : sig
-  type -'a t = private int constraint 'a = [< `Rd | `Wr ]
+  type -'a t = private int constraint 'a = [< `Rd | `Wr ] [@@immediate]
 
   val is_null : 'a t -> bool
   val null : [ `Rd ] t
   val length : int
 
-  val of_int_rdonly : int -> [ `Rd ] t
-  val of_int_wronly : int -> [ `Wr ] t
-  val of_int_rdwr : int -> [ `Rd | `Wr ] t
+  external of_int_rdonly : int -> [ `Rd ] t = "%identity"
+  external of_int_wronly : int -> [ `Wr ] t = "%identity"
+  external of_int_rdwr : int -> [ `Rd | `Wr ] t = "%identity"
 
-  val to_wronly : [> `Wr ] t -> [ `Wr ] t
-  val to_rdonly : [> `Rd ] t -> [ `Rd ] t
+  external to_wronly : [> `Wr ] t -> [ `Wr ] t = "%identity"
+  external to_rdonly : [> `Rd ] t -> [ `Rd ] t = "%identity"
 
   val ( + ) : 'a t -> int -> 'a t
 end
