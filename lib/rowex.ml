@@ -216,7 +216,7 @@ let pp_value : type c a. (c, a) value fmt = fun ppf -> function
 let fmt fmt = fun ppf -> pf ppf fmt
 
 let pp_of_value : type c a. (c, a) value -> a fmt = function
-  | BEInt -> fmt "%10d"
+  | BEInt -> fun ppf v -> if v < 0  then pf ppf "%16x" v else pf ppf "%10d" v
   | BEInt31 -> fmt "%10d"
   | BEInt16 -> fmt "%5d"
   | BEInt64 -> fmt "%19Ld"
@@ -231,21 +231,21 @@ let pp : type a. a t fmt = fun ppf -> function
   | Atomic_set (m, addr, v, x) ->
      pf ppf "atomic_set %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
   | Fetch_add (m, addr, v, x) ->
-     pf ppf "fetch_add %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
+     pf ppf "fetch_add  %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
+  | Collect (addr, len) ->
+     pf ppf "collect    %016x %d" (addr :> int) len
+  | Delete (addr, len) ->
+     pf ppf "delete     %016x %d" (addr :> int) len
+  | Get (addr, v) ->
+     pf ppf "get        %016x         : %a" (addr :> int) pp_value v
+  | Allocate (_, len) ->
+     pf ppf "allocate %d" len
   | Pause_intrinsic ->
      pf ppf "pause_intrinsic"
   | Compare_exchange (addr, v, x, y, weak, m) ->
      pf ppf "compare_exchange weak:%b %016x %a (%a : %a) (%a : %a)" weak (addr :> int) pp_memory_order m
        (pp_of_value v) x pp_value v
        (pp_of_value v) y pp_value v
-  | Get (addr, v) ->
-     pf ppf "get %016x : %a" (addr :> int) pp_value v
-  | Allocate (_, len) ->
-     pf ppf "allocate %d" len
-  | Delete (addr, len) ->
-     pf ppf "delete %016x %d" (addr :> int) len
-  | Collect (addr, len) ->
-     pf ppf "collect %016x %d" (addr :> int) len
   | Bind (Allocate (_, len), _) ->
      pf ppf "allocate %d byte(s) >>= fun _ ->" len
   | Bind _ -> pf ppf ">>="

@@ -124,18 +124,30 @@ let src = Logs.Src.create "atomic"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 let rec run : type a. mmu -> a t -> a = fun ({ brk; memory; free; } as mmu) cmd ->
-  Log.debug (fun m -> m "%a" pp cmd) ;
+  let () = match cmd with
+    | Bind _ | Return _ -> ()
+    | cmd -> Log.debug (fun m -> m "%a" pp cmd) in
   match cmd with
-  | Atomic_get (memory_order, addr, Int8) -> atomic_get_uint8 memory (addr :> int) memory_order
-  | Atomic_set (memory_order, addr, Int8, v) -> atomic_set_uint8 memory (addr :> int) memory_order v
-  | Atomic_get (memory_order, addr, BEInt) -> atomic_get_leuintnat memory (addr :> int) memory_order
-  | Atomic_set (memory_order, addr, BEInt, v) -> atomic_set_leuintnat memory (addr :> int) memory_order v
-  | Atomic_get (memory_order, addr, BEInt16) -> atomic_get_leuint16 memory (addr :> int) memory_order
-  | Atomic_set (memory_order, addr, BEInt16, v) -> atomic_set_leuint16 memory (addr :> int) memory_order v
-  | Atomic_get (memory_order, addr, BEInt31) -> atomic_get_leuint31 memory (addr :> int) memory_order
-  | Atomic_set (memory_order, addr, BEInt31, v) -> atomic_set_leuint31 memory (addr :> int) memory_order v
-  | Atomic_get (memory_order, addr, BEInt64) -> atomic_get_leuint64 memory (addr :> int) memory_order
-  | Atomic_set (memory_order, addr, BEInt64, v) -> atomic_set_leuint64 memory (addr :> int) memory_order v
+  | Atomic_get (memory_order, addr, Int8) ->
+     atomic_get_uint8 memory (addr :> int) memory_order
+  | Atomic_set (memory_order, addr, Int8, v) ->
+     atomic_set_uint8 memory (addr :> int) memory_order v
+  | Atomic_get (memory_order, addr, BEInt) ->
+     atomic_get_leuintnat memory (addr :> int) memory_order
+  | Atomic_set (memory_order, addr, BEInt, v) ->
+     atomic_set_leuintnat memory (addr :> int) memory_order v
+  | Atomic_get (memory_order, addr, BEInt16) ->
+     atomic_get_leuint16 memory (addr :> int) memory_order
+  | Atomic_set (memory_order, addr, BEInt16, v) ->
+     atomic_set_leuint16 memory (addr :> int) memory_order v
+  | Atomic_get (memory_order, addr, BEInt31) ->
+     atomic_get_leuint31 memory (addr :> int) memory_order
+  | Atomic_set (memory_order, addr, BEInt31, v) ->
+     atomic_set_leuint31 memory (addr :> int) memory_order v
+  | Atomic_get (memory_order, addr, BEInt64) ->
+     atomic_get_leuint64 memory (addr :> int) memory_order
+  | Atomic_set (memory_order, addr, BEInt64, v) ->
+     atomic_set_leuint64 memory (addr :> int) memory_order v
   | Atomic_get (memory_order, addr, BEInt128) ->
     let res = Bytes.create 16 in
     atomic_get_leuint128 memory (addr :> int) memory_order res ;
