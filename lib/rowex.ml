@@ -1,6 +1,16 @@
-let () = Printexc.record_backtrace true
-
 let (.![]) = String.unsafe_get
+(* XXX(dinosaure): see [art.ml] about this unsafe access. *)
+
+external ( <= ) : 'a -> 'a -> bool = "%lessequal"
+let ( <= ) (x : int) y = x <= y [@@inline]
+let min (a : int) b = if a <= b then a else b [@@inline]
+
+type key = string
+
+let key : string -> key = fun key ->
+  if String.contains key '\000' then invalid_arg "Invalid key" ; key
+
+external unsafe_key : string -> key = "%identity"
 
 let src = Logs.Src.create "rowex"
 module Log = (val Logs.src_log src : Logs.LOG)

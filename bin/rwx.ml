@@ -43,23 +43,23 @@ let read_eval_print_loop mmu root =
     Format.printf ": %!" ;
     match Astring.String.cuts ~sep:" " (input_line stdin) with
     | [ "insert"; key; value; ] ->
-      if String.contains key '\000' then ( Format.printf "> Invalid key: %S.\n%!" key ; loop mmu root )
-      else
-        ( try let value = int_of_string value in run mmu (Rowex.insert root key value) ; loop mmu root
-          with exn ->
-            Format.printf "# %s.\n%!" (Printexc.to_string exn) ;
-            Printexc.print_backtrace stdout ;
-            Format.printf "> Invalid value: %S.\n%!" value ;
-            loop mmu root )
+      ( try let value = int_of_string value in run mmu (Rowex.insert root (Rowex.key key) value) ; loop mmu root
+        with exn ->
+          Format.printf "# %s.\n%!" (Printexc.to_string exn) ;
+          Printexc.print_backtrace stdout ;
+          Format.printf "> Invalid key or value: %S -> %S.\n%!" key value ;
+          loop mmu root )
     | [ "lookup"; key; ] ->
-      if String.contains key '\000' then ( Format.printf "> Invalid key: %S.\n%!" key ; loop mmu root )
-      else
-        ( try let value = run mmu (Rowex.find (Addr.to_rdonly root) key) in
-            Format.printf "> %S => %10d.\n%!" key (value :> int) ;
-            loop mmu root
-          with Not_found ->
-            Format.printf "> %S does not exists.\n%!" key ;
-            loop mmu root )
+      ( try let value = run mmu (Rowex.find (Addr.to_rdonly root) (Rowex.key key)) in
+          Format.printf "> %S => %10d.\n%!" key (value :> int) ;
+          loop mmu root
+        with
+        | Not_found ->
+           Format.printf "> %S does not exists.\n%!" key ;
+           loop mmu root
+        | Invalid_argument _ ->
+           Format.printf "> Invalid key %S.\n%!" key ;
+           loop mmu root )
     | [ "quit" ] -> ()
     | vs ->
       Format.printf "> Invalid command: %S.\n%!" (String.concat " " vs) ;

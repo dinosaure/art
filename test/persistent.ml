@@ -55,7 +55,8 @@ let mmu_of_optional_file = function
   | Some mmu -> mmu
   | None -> Rresult.R.failwith_error_msg (Lazy.force random_index)
 
-let find mmu root key = run mmu (Rowex.find root key)
+let insert mmu root key v = run mmu (Rowex.insert root (Rowex.key key) v)
+let find mmu root key = run mmu (Rowex.find root (Rowex.key key))
 
 let test01 =
   Alcotest.test_case "test01" `Quick @@ fun file ->
@@ -63,12 +64,12 @@ let test01 =
   let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
   let root_rdwr = Addr.of_int_rdwr root in
   let root_rd   = Addr.of_int_rdonly root in
-  run mmu (Rowex.insert root_rdwr "abc" 1) ;
+  insert mmu root_rdwr "abc"   1 ;
   Alcotest.(check int) "abc"   (find mmu root_rd "abc")   1 ;
-  run mmu (Rowex.insert root_rdwr "ab" 2) ;
+  insert mmu root_rdwr "ab"    2 ;
   Alcotest.(check int) "abc"   (find mmu root_rd "abc")   1 ;
   Alcotest.(check int) "ab"    (find mmu root_rd "ab")    2 ;
-  run mmu (Rowex.insert root_rdwr "abcde" 3) ;
+  insert mmu root_rdwr "abcde" 3 ;
   Alcotest.(check int) "abc"   (find mmu root_rd "abc")   1 ;
   Alcotest.(check int) "ab"    (find mmu root_rd "ab")    2 ;
   Alcotest.(check int) "abcde" (find mmu root_rd "abcde") 3
@@ -80,15 +81,15 @@ let test02 =
   let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
   let root_rdwr = Addr.of_int_rdwr root in
   let root_rd   = Addr.of_int_rdonly root in
-  run mmu (Rowex.insert root_rdwr "a0" 0) ;
-  run mmu (Rowex.insert root_rdwr "a1" 1) ;
-  run mmu (Rowex.insert root_rdwr "a2" 2) ;
-  run mmu (Rowex.insert root_rdwr "a3" 3) ;
+  insert mmu root_rdwr "a0" 0 ;
+  insert mmu root_rdwr "a1" 1 ;
+  insert mmu root_rdwr "a2" 2 ;
+  insert mmu root_rdwr "a3" 3 ;
   Alcotest.(check int) "a0" (find mmu root_rd "a0") 0 ;
   Alcotest.(check int) "a1" (find mmu root_rd "a1") 1 ;
   Alcotest.(check int) "a2" (find mmu root_rd "a2") 2 ;
   Alcotest.(check int) "a3" (find mmu root_rd "a3") 3 ;
-  run mmu (Rowex.insert root_rdwr "a4" 4) ;
+  insert mmu root_rdwr "a4" 4 ;
   Alcotest.(check int) "a0" (find mmu root_rd "a0") 0 ;
   Alcotest.(check int) "a1" (find mmu root_rd "a1") 1 ;
   Alcotest.(check int) "a2" (find mmu root_rd "a2") 2 ;

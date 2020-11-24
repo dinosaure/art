@@ -1,5 +1,10 @@
 (** Persistent implementation of Adaptive Radix Tree. *)
 
+type key = private string
+
+val key : string -> key
+external unsafe_key : string -> key = "%identity"
+
 module Addr : sig
   type -'a t = private int constraint 'a = [< `Rd | `Wr ] [@@immediate]
 
@@ -50,6 +55,6 @@ type 'a fmt = Format.formatter -> 'a -> unit
 
 val pp : 'a t fmt
 
-val find : [ `Rd ] Addr.t -> String.t -> int t
-val insert : [ `Rd | `Wr ] Addr.t -> String.t -> int -> unit t
+val find : [ `Rd ] Addr.t -> key -> int t
+val insert : [ `Rd | `Wr ] Addr.t -> key -> int -> unit t
 val ctor : unit -> [ `Rd | `Wr ] Addr.t t
