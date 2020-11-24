@@ -44,8 +44,27 @@ let pp_binding ppf ((k : Art.key), v) =
 let () =
   add_test ~name:"art" [ list (pair key int) ] @@ fun lst ->
   let art = Art.make () in
-  List.iter (fun (k, v) -> Art.insert art k v) lst ;
-  let check = fun (k, v0) -> match Art.find art k with
+  let check = fun (k, v0) -> Art.insert art k v0 ; match Art.find art k with
     | v1 -> check_eq v0 v1
     | exception Not_found -> failf "Error with: @[<hov>%a@]" Fmt.(Dump.list pp_binding) lst in
   List.iter check lst
+
+let unique equal lst =
+  let rec go k acc = function
+    | [] -> acc
+    | (k', _) as hd :: tl -> if equal k k' then go k acc tl else go k' (hd :: acc) tl in
+  match List.rev lst with
+  | [] -> []
+  | (k, v) :: lst ->
+     go k [ k, v ] lst
+
+let () =
+  add_test ~name:"art" [ list (pair key int) ] @@ fun lst ->
+  let art = Art.make () in
+  List.iter (fun (k, v) -> Art.insert art k v) lst ;
+  let uniq = List.stable_sort (fun ((a : Art.key), _) ((b : Art.key), _) -> String.compare (a:>string) (b:>string)) lst in
+  let uniq = unique (fun (a:Art.key) (b:Art.key) -> String.equal (a:>string) (b:>string)) uniq in
+  let check = fun (k, v0) -> match Art.find art k with
+    | v1 -> check_eq v0 v1
+    | exception Not_found -> failf "Error with: @[<hov>%a@]" Fmt.(Dump.list pp_binding) lst in
+  List.iter check uniq
