@@ -338,7 +338,6 @@ let get_version addr = atomic_get Addr.(addr + _header_kind) Value.beintnat
 
 let get_type addr =
   let* value = atomic_get ~memory_order:Relaxed Addr.(addr + _header_kind) Value.beintnat in
-  Log.debug (fun m -> m "type is %016x" value) ;
   return (value lsr _bits_kind)
 [@@inline]
 
@@ -372,7 +371,8 @@ let n4_find_child addr k =
   if _2 = k then atomic_get Addr.(addr + _header_length + 4 + (Addr.length * 2)) Value.addr_rd else
   let* _3 = atomic_get Addr.(addr + _header_length + 3) Value.int8 in
   if _3 = k then atomic_get Addr.(addr + _header_length + 4 + (Addr.length * 3)) Value.addr_rd else
-  return Addr.null
+    ( Log.debug (fun m -> m "No child for %02x into N4" k)
+    ; return Addr.null )
 
 external n16_get_child : int -> int -> string -> int = "caml_n16_get_child" [@@noalloc]
 external ctz : int -> int = "caml_ctz" [@@noalloc]
@@ -445,18 +445,21 @@ let minimum (addr : [> `Rd ] Addr.t) = minimum (Addr.to_rdonly addr) [@@inline]
 let find_child addr chr =
   let k = Char.code chr in
   let* ty = get_type addr in
-  Log.debug (fun m -> m "Kind of the node: %016x" ty) ;
+  Log.debug (fun m -> m "find_child node %c" chr) ;
   match ty with
   | 0 -> n4_find_child   addr k
-  | 1 -> n16_find_child  addr k
-  | 2 -> n48_find_child  addr k
+  | 1 ->
+     Log.debug (fun m -> m "find_child_n16 node %c" chr) ;
+     n16_find_child  addr k
+  | 2 ->
+     Log.debug (fun m -> m "find_child_n48 node %c" chr) ;
+     n48_find_child  addr k
   | 3 -> n256_find_child addr k
   | _ -> assert false
 
 let rec _check_prefix ~key ~key_len ~prefix ~level idx max =
   if idx < max
-  then ( Log.debug (fun m -> m "prefix.[%d]:%c = key.[%d]:%c" idx prefix.[idx] (level + idx) key.[level + idx])
-       ; if prefix.[idx] <> key.[level + idx]
+  then ( if prefix.[idx] <> key.[level + idx]
          then raise Not_found
          else _check_prefix ~key ~key_len ~prefix ~level (succ idx) max )
 ;;
@@ -477,7 +480,6 @@ let check_prefix addr ~key ~key_len level =
   then raise Not_found (* XXX(dinosaure): we miss something! *)
   else
     let* prefix, prefix_count = get_prefix addr in
-    Log.debug (fun m -> m "prefix:%S, prefix_count: %d." prefix prefix_count) ;
     if prefix_count + level < depth
     then return (depth - level) (* XXX(dinosaure): optimistic match *)
     else if prefix_count > 0
@@ -567,9 +569,7 @@ let rec _check_prefix_pessimistic ~key ~minimum ~prefix ~prefix_count ~level idx
 
 let check_prefix_pessimistic (addr : ([ `Wr | `Rd ] as 'a) Addr.t) ~key level =
   let* prefix, prefix_count = get_prefix addr in
-  Log.debug (fun m -> m "prefix: %S, prefix_count: %d" prefix prefix_count) ;
   let* depth = get Addr.(addr + _header_depth) Value.beint31 in
-  Log.debug (fun m -> m "depth: %d" depth) ;
   if prefix_count + level < depth
   then return Skipped_level
   else if prefix_count > 0
@@ -588,16 +588,11 @@ let check_prefix_pessimistic (addr : ([ `Wr | `Rd ] as 'a) Addr.t) ~key level =
          an other [level] value. *)
 
 let rec _lookup (node : [ `Rd ] Addr.t) ~key ~key_len ~optimistic_match level =
-  Log.debug (fun m -> m "lookup on %016x" (node :> int)) ;
   let* res = check_prefix node ~key ~key_len level in
-  Log.debug (fun m -> m "check_prefix = %d" res) ;
   let optimistic_match = if res > 0 then true else optimistic_match in
   let level = level + (abs res) in
-  Log.debug (fun m -> m "next level: %d" level) ;
   if key_len < level then raise Not_found ;
-  Log.debug (fun m -> m "find child with %c" key.![level]) ;
   let* node = find_child node key.![level] in
-  Log.debug (fun m -> m "node: %016x" (node :> int)) ;
   if Addr.is_null node then raise Not_found ;
   if (node :> int) land 1 = 1 (* XXX(dinosaure): it is a leaf. *)
   then ( let leaf = Leaf.prj (Addr.unsafe_to_leaf node) in
@@ -741,7 +736,6 @@ let lock_version_or_restart addr version need_to_restart =
   then ( need_to_restart := true ; return version)
   else
     let* set = compare_exchange Addr.(addr + _header_kind) Value.beintnat version (version + 0b10) in
-    Log.debug (fun m -> m "value at %016x is set? %b" (Addr.(addr + _header_kind) :> int) set) ;
     if set then return (version + 0b10) else ( need_to_restart := true ; return version )
 
 (***** CHANGE/UPDATE CHILD *****)
@@ -795,6 +789,7 @@ let n256_update_child addr k ptr =
 
 let update_child addr k ptr =
   let* ty = get_type addr in
+  Log.debug (fun m -> m "Update child %02x" k) ;
   match ty with
   | 0 -> n4_update_child addr k ptr
   | 1 -> n16_update_child addr k ptr
@@ -873,6 +868,7 @@ let rec _copy_n4_into_n16 ~compact_count n4 n16 i =
     | false ->
       let* key = atomic_get Addr.(n4 + _header_length + i) Value.int8 in
       let* _   = add_child_n16 n16 key value in (* XXX(dinosaure): assert (_ = true); *)
+      Log.debug (fun m -> m "<N4 -> N16> copy %02x (%016x)" key (value :> int)) ;
       _copy_n4_into_n16 ~compact_count n4 n16 (succ i)
 
 let copy_n4_into_n16 (N4 n4) n16 =
@@ -961,19 +957,21 @@ let _insert_grow_n4_n16 (N4 addr as n4) p k kp value need_to_restart =
   let* inserted = add_child_n4 n4 k value in
   if inserted then write_unlock addr
   else
-    let* prefix, prefix_count = get_prefix addr in
-    let* level = get Addr.(addr + _header_depth) Value.beint31 in
-    let* N16 addr' as n16 = alloc_n16 ~prefix ~prefix_count ~level in
-    let* () = copy_n4_into_n16 n4 n16 in
-    let* _  = add_child_n16 n16 k value in (* XXX(dinosaure): assert (_ = true); *)
-    let* () = write_lock_or_restart p need_to_restart in
-    if !need_to_restart
-    then ( let* () = delete addr' (_header_length + 16 + (Addr.length * 16)) in write_unlock addr )
-    else
-      let* () = update_child p kp (Addr.to_rdonly addr') in
-      let* () = write_unlock p in
-      let* () = write_unlock_and_obsolete addr in
-      collect addr (_header_length + 4 + (Addr.length * 4))
+    ( Log.debug (fun m -> m "We must grow the N4 node to a N16 node")
+    ; let* prefix, prefix_count = get_prefix addr in
+      let* level = get Addr.(addr + _header_depth) Value.beint31 in
+      let* N16 addr' as n16 = alloc_n16 ~prefix ~prefix_count ~level in
+      Log.debug (fun m -> m "Copy N4 children into new N16 node")
+    ; let* () = copy_n4_into_n16 n4 n16 in
+      let* _  = add_child_n16 n16 k value in (* XXX(dinosaure): assert (_ = true); *)
+      let* () = write_lock_or_restart p need_to_restart in
+      if !need_to_restart
+      then ( let* () = delete addr' (_header_length + 16 + (Addr.length * 16)) in write_unlock addr )
+      else
+        let* () = update_child p kp (Addr.to_rdonly addr') in
+        let* () = write_unlock p in
+        let* () = write_unlock_and_obsolete addr in
+        collect addr (_header_length + 4 + (Addr.length * 4)) )
 
 let _insert_grow_n16_n48 (N16 addr as n16) p k kp value need_to_restart =
   let* inserted = add_child_n16 n16 k value in
@@ -1062,6 +1060,7 @@ let insert_and_unlock n p k kp value need_to_restart =
   | 0 ->
     let* compact_count = atomic_get Addr.(n + _header_compact_count) Value.beint16 in
     let* count = atomic_get Addr.(n + _header_count) Value.beint16 in
+    Log.debug (fun m -> m "insert %02x into N4 (compact_count: %d, count: %d)" k compact_count count) ;
     if compact_count = 4 && count <= 3
     then insert_compact_n4 (N4 n) p k kp value need_to_restart
     else _insert_grow_n4_n16 (N4 n) p k kp value need_to_restart
@@ -1088,7 +1087,6 @@ exception Duplicate
 let check_or_raise_duplicate ~level:off a b =
   if String.length a = String.length b
   then ( let idx = ref (String.length a - 1) in
-         Log.debug (fun m -> m "check %S and %S (off: %d)" a b off) ;
          while !idx >= off && a.[!idx] = b.[!idx] do decr idx done ;
          if !idx < off then raise Duplicate )
 
@@ -1106,11 +1104,13 @@ let rec insert root key leaf =
   and _insert (node : [ `Rd | `Wr ] Addr.t) parent pk level =
     let need_to_restart = ref false in
     let* version = get_version node in
-    Log.debug (fun m -> m "version of %016x: %016x" (node :> int) version) ;
     let* res = check_prefix_pessimistic node ~key level in
     ( match res with
     | Skipped_level -> restart ()
     | No_match { non_matching_key; non_matching_prefix; level= level'; } ->
+      Log.debug (fun m -> m "check_prefix_pessimistic %016x ~key:%s %d : \
+                             No_match { non_matching_key: %c; non_matching_prefix: %S; level: %d }"
+                            (node :> int) key level non_matching_key non_matching_prefix level') ;
       if level' >= String.length key then raise Duplicate ;
       let* _version = lock_version_or_restart node version need_to_restart in
       if !need_to_restart then (restart[@tailcall]) () else
@@ -1132,16 +1132,16 @@ let rec insert root key leaf =
             ~prefix_count:(prefix_count - ((level' - level) + 1)) in
         let* () = write_unlock node in
         return ()
-    | Match { level } ->
-      Log.debug (fun m -> m "current node %016x matches with %S (level: %d)" (node :> int) key level) ;
+    | Match { level= level' } ->
+      Log.debug (fun m -> m "check_prefix_pessimistic %016x ~key:%s %d : Match { %d }"
+                            (node :> int) key level level') ;
+      let level = level' in
       let* next = find_child node key.[level] in
-      Log.debug (fun m -> m "next node => %016x" (next :> int)) ;
       if Addr.is_null next
       then
         let* _version = lock_version_or_restart node version need_to_restart in
         if !need_to_restart then (restart[@tailcall]) () else
-        ( Log.debug (fun m -> m "version locked.") ;
-          let* () = insert_and_unlock node parent (Char.code key.[level]) pk leaf
+        ( let* () = insert_and_unlock node parent (Char.code key.[level]) pk leaf
                       need_to_restart in
           if !need_to_restart then (restart[@tailcall]) () else
             return () )
