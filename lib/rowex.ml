@@ -1149,7 +1149,7 @@ let rec insert root key leaf =
       then
         let* key' = get (Leaf.prj (Addr.unsafe_to_leaf next)) Value.c_string in
         check_or_raise_duplicate ~level:(level + 1) key key' ;
-        (* XXX(dinosaure): in the C impl., this check **not** does exists but:
+        (* XXX(dinosaure): in the C impl., this check does **not** exists but:
            - create ()
            - insert "foo" 0
            - insert "foo" 1
