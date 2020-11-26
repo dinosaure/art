@@ -57,38 +57,38 @@ type 'a t =
   { tree : 'a elt ref
   ; null : 'a elt ref }
 
-let pp_char ppf = function
+let[@coverage off] pp_char ppf = function
   | '\x21' .. '\x7e' as chr -> Fmt.char ppf chr
   | chr -> Fmt.pf ppf "%02x" (Char.code chr)
 
-let pp_n4 ppf { n0_1; n2_3; } =
+let[@coverage off] pp_n4 ppf { n0_1; n2_3; } =
   Fmt.pf ppf "%a" Fmt.(Dump.array (using Char.unsafe_chr pp_char))
-    [| n0_1 land 0xff; n0_1 asr 8; n2_3 land 0xff; n2_3 asr 8 |]
+    [| n0_1 land 0xff; n0_1 lsr 8; n2_3 land 0xff; n2_3 lsr 8 |]
 
-let pp_n16 ppf keys =
+let[@coverage off] pp_n16 ppf keys =
   Fmt.pf ppf "%a"
     Fmt.(Dump.array pp_char)
     (Array.init 16 (fun i -> keys.!{i}))
 
-let pp_n48 _ppf _keys = ()
+let[@coverage off] pp_n48 _ppf _keys = ()
 
-let pp_n256 _ppf _keys = ()
+let[@coverage off] pp_n256 _ppf _keys = ()
 
-let pp_keys : type a. kind:a kind -> a Fmt.t = fun ~kind -> match kind with
+let[@coverage off] pp_keys : type a. kind:a kind -> a Fmt.t = fun ~kind -> match kind with
   | N4 -> pp_n4
   | N16 -> pp_n16
   | N48 -> pp_n48
   | N256 -> pp_n256
   | NULL -> Fmt.nop
 
-let pp_kind : type a. a kind Fmt.t = fun ppf -> function
+let[@coverage off] pp_kind : type a. a kind Fmt.t = fun ppf -> function
   | N4 -> Fmt.string ppf "N4"
   | N16 -> Fmt.string ppf "N16"
   | N48 -> Fmt.string ppf "N48"
   | N256 -> Fmt.string ppf "N256"
   | NULL -> Fmt.string ppf "NULL"
 
-let pp_record : type a. a record Fmt.t = fun ppf r ->
+let[@coverage off] pp_record : type a. a record Fmt.t = fun ppf r ->
   match r.kind with
   | NULL -> Fmt.string ppf "<null>"
   | _ ->
@@ -101,9 +101,9 @@ let pp_record : type a. a record Fmt.t = fun ppf r ->
       r.count pp_kind r.kind
       (pp_keys ~kind:r.kind) r.keys
 
-let pp_header ppf (Header record) = pp_record ppf record
+let[@coverage off] pp_header ppf (Header record) = pp_record ppf record
 
-let rec pp_elt pp_value ppf = function
+let[@coverage off] rec pp_elt pp_value ppf = function
   | Leaf { key; value; } ->
     Fmt.pf ppf "{:leaf @[<hov>key= %S;@ value= @[<hov>%a@];@] }" key pp_value value
   | Node { header= Header { kind= NULL; _ }; _ } ->
@@ -112,7 +112,7 @@ let rec pp_elt pp_value ppf = function
     Fmt.pf ppf "{:node @[<hov>hdr= @[<hov>%a@];@ children= @[<hov>%a@];@] }"
       pp_header header Fmt.(Dump.array (pp_elt pp_value)) children
 
-let pp pp_value ppf { tree; _ } = pp_elt pp_value ppf !tree
+let[@coverage off] pp pp_value ppf { tree; _ } = pp_elt pp_value ppf !tree
 
 external ctz : int -> int = "caml_ctz" [@@noalloc]
 
@@ -142,14 +142,14 @@ let n4_shift n4 = function
   ; n4.n0_1 <- n4.n0_1 land 0xff
   | 2 ->
     n4.n2_3 <- (n4.n2_3 lsl 8) land 0xffff
-  | _ -> ()
+  | _ -> (()[@coverage off])
 
 let n4_set n4 idx chr = match idx with
   | 0 -> n4.n0_1 <- n4.n0_1 lor chr
   | 1 -> n4.n0_1 <- n4.n0_1 lor (chr lsl 8)
   | 2 -> n4.n2_3 <- n4.n2_3 lor chr
   | 3 -> n4.n2_3 <- n4.n2_3 lor (chr lsl 8)
-  | _ -> ()
+  | _ -> (()[@coverage off])
 
 let n16 prefix : n16 record =
   let record =
@@ -302,7 +302,7 @@ let find_child
         let i = Char.code (record.keys.!{code}) in
         if i <> 48 then res := i
       | N256 -> res := code
-      | NULL -> () )
+      | NULL -> (()[@coverage off]) )
   ; !res
 ;;
 
@@ -447,7 +447,7 @@ let make () =
 
 [@@@warning "-32"]
 
-let remove_child_n256
+let[@coverage off] remove_child_n256
   : n256 record -> 'a elt ref -> 'a elt array -> char -> unit
   = fun record tree children chr ->
     children.(Char.code chr) <- empty_elt ;
@@ -465,7 +465,7 @@ let remove_child_n256
            done ;
            tree := Node { header= Header node48; children= children' } )
 
-let remove_child_n48
+let[@coverage off] remove_child_n48
   : n48 record -> 'a elt ref -> 'a elt array -> char -> unit
   = fun record tree children chr ->
     let pos = Char.code record.keys.!{Char.code chr} in
