@@ -442,6 +442,10 @@ let rec insert ({ tree; _ } as v) elt key_a len_a value_a depth = match elt with
 let insert tree key value =
   insert tree !(tree.tree) key (String.length key) value 0
 
+let minimum { tree; _ } =
+  let { value; key; } = minimum !tree in
+  key, value
+
 let make () =
   { tree= ref empty_elt
   ; null= ref empty_elt }

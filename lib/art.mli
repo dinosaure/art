@@ -28,3 +28,5 @@ val find : 'a t -> key -> 'a
 val find_opt : 'a t -> key -> 'a option
 
 val pp : 'a Fmt.t -> 'a t Fmt.t
+
+val minimum : 'a t -> key * 'a
