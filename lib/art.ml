@@ -254,9 +254,9 @@ let add_child_n4
            let max = record.count in
            let cmd = Char.code chr in
            if !idx < max && cmd >= record.keys.n0_1 land 0xff then incr idx ;
-           if !idx < max && cmd >= record.keys.n0_1 asr 8 then incr idx ;
+           if !idx < max && cmd >= record.keys.n0_1 lsr 8 then incr idx ;
            if !idx < max && cmd >= record.keys.n2_3 land 0xff then incr idx ;
-           if !idx < max && cmd >= record.keys.n2_3 asr 8 then incr idx ;
+           if !idx < max && cmd >= record.keys.n2_3 lsr 8 then incr idx ;
            n4_shift record.keys !idx ;
            Array.blit children !idx children (!idx + 1) (record.count - !idx) ;
            n4_set record.keys !idx (Char.code chr) ;
@@ -266,9 +266,9 @@ let add_child_n4
            let children' = Array.make 16 empty_elt in
            Array.blit children 0 children' 0 4 ;
            node16.keys.!{0} <- Char.unsafe_chr (record.keys.n0_1 land 0xff) ;
-           node16.keys.!{1} <- Char.unsafe_chr (record.keys.n0_1 asr 8) ;
+           node16.keys.!{1} <- Char.unsafe_chr (record.keys.n0_1 lsr 8) ;
            node16.keys.!{2} <- Char.unsafe_chr (record.keys.n2_3 land 0xff) ;
-           node16.keys.!{3} <- Char.unsafe_chr (record.keys.n2_3 asr 8) ;
+           node16.keys.!{3} <- Char.unsafe_chr (record.keys.n2_3 lsr 8) ;
            copy_header ~src:record ~dst:node16 ;
            let null = ref empty_elt in
            add_child_n16 node16 null children' chr node ;
@@ -287,11 +287,11 @@ let find_child
         let m = record.count in
         if m > 0 && record.keys.n0_1 land 0xff = code
         then res := 0
-        else if m > 1 && (record.keys.n0_1 asr 8) land 0xff = code
+        else if m > 1 && (record.keys.n0_1 lsr 8) land 0xff = code
         then res := 1
         else if m > 2 && record.keys.n2_3 land 0xff = code
         then res := 2
-        else if m > 3 && (record.keys.n2_3 asr 8) land 0xff = code
+        else if m > 3 && (record.keys.n2_3 lsr 8) land 0xff = code
         then res := 3
       | N16 ->
         (* TODO(dinosaure): can be replaced by SSE instr. *)
