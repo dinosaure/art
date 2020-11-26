@@ -68,3 +68,15 @@ let () =
     | v1 -> check_eq v0 v1
     | exception Not_found -> failf "Error with: @[<hov>%a@]" Fmt.(Dump.list pp_binding) lst in
   List.iter check uniq
+
+let () =
+  add_test ~name:"art/minimum" [ list1 (pair key int) ] @@ fun lst ->
+  let art = Art.make () in
+  List.iter (fun (k, v) -> Art.insert art k v) lst ;
+  let uniq = List.stable_sort (fun ((a : Art.key), _) ((b : Art.key), _) -> String.compare (a:>string) (b:>string)) lst in
+  let uniq = unique (fun (a:Art.key) (b:Art.key) -> String.equal (a:>string) (b:>string)) uniq in
+  let (k0, v0) = List.hd uniq in
+  let (k1, v1) = Art.minimum art in
+  Fmt.pr "@[<hov>%a@]\n%!" (Art.pp Fmt.int) art ;
+  check_eq ~pp:(fun ppf (v:Art.key) -> Fmt.pf ppf "%S" (v :> string)) k0 k1 ;
+  check_eq ~pp:Fmt.int v0 v1
