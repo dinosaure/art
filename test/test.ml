@@ -175,6 +175,63 @@ let test11 =
   Alcotest.(check int) "foobar" (Art.find tree (Art.key "foobar")) 3
 ;;
 
+let test12 =
+  Alcotest.test_case "test12" `Quick @@ fun () ->
+  let tree = Art.make () in
+  Art.insert tree (Art.key "a0") 0 ;
+  Art.insert tree (Art.key "a1") 1 ;
+  Art.insert tree (Art.key "a2") 2 ;
+  Art.insert tree (Art.key "a3") 3 ;
+  Alcotest.(check int) "a0" (Art.find tree (Art.key "a0")) 0 ;
+  Alcotest.(check int) "a1" (Art.find tree (Art.key "a1")) 1 ;
+  Alcotest.(check int) "a2" (Art.find tree (Art.key "a2")) 2 ;
+  Alcotest.(check int) "a3" (Art.find tree (Art.key "a3")) 3
+;;
+
+let test13 =
+  Alcotest.test_case "test13" `Quick @@ fun () ->
+  let k1 = Art.key (String.make 15 'a' ^ "foo") in
+  let k2 = Art.key (String.make 15 'a' ^ "bar") in
+  let k3 = Art.key (String.make 20 'a' ^ "foobar") in
+  let k4 = Art.key (String.make 20 'a' ^ "barfoo") in
+  let tree = Art.make () in
+  Art.insert tree k1 1 ;
+  Art.insert tree k2 2 ;
+  Art.insert tree k3 3 ;
+  Art.insert tree k4 4 ;
+  Alcotest.(check int) (k1 :> string) (Art.find tree k1) 1 ;
+  Alcotest.(check int) (k2 :> string) (Art.find tree k2) 2 ;
+  Alcotest.(check int) (k3 :> string) (Art.find tree k3) 3 ;
+  Alcotest.(check int) (k4 :> string) (Art.find tree k4) 4
+;;
+
+let test14 =
+  Alcotest.test_case "test14" `Quick @@ fun () ->
+  let k1 = Art.key (String.make 15 'a' ^ "foo") in
+  let k2 = Art.key (String.make 15 'a' ^ "bar") in
+  let k3 = Art.key (String.make 11 'a') in
+  let k4 = Art.key (String.make 10 'a') in
+  let k5 = Art.key (String.make 12 'a') in
+  let tree = Art.make () in
+  Art.insert tree k1 1 ;
+  Art.insert tree k2 2 ;
+  Art.insert tree k3 3 ;
+  Alcotest.(check int) (k1 :> string) (Art.find tree k1) 1 ;
+  Alcotest.(check int) (k2 :> string) (Art.find tree k2) 2 ;
+  Alcotest.(check int) (k3 :> string) (Art.find tree k3) 3 ;
+  (* XXX(dinosaure): see around out of prefix. *)
+  Alcotest.check_raises (k4 :> string) Not_found (fun () -> ignore @@ Art.find tree k4) ;
+  Alcotest.check_raises (k5 :> string) Not_found (fun () -> ignore @@ Art.find tree k5)
+;;
+
+let test15 =
+  Alcotest.test_case "test15" `Quick @@ fun () ->
+  let ks = Array.init 200 (function 0 -> Art.key "" | i -> Art.key (String.make 1 (Char.unsafe_chr i))) in
+  let tree = Art.make () in
+  Array.iteri (fun i k -> Art.insert tree k i) ks ;
+  Alcotest.check_raises "not found" Not_found (fun () -> ignore @@ Art.find tree (Art.key "\255"))
+;;
+
 let () =
   Alcotest.run "art"
     [ "art", [ test01
@@ -187,4 +244,8 @@ let () =
              ; test08
              ; test09
              ; test10
-             ; test11 ] ]
+             ; test11
+             ; test12
+             ; test13
+             ; test14
+             ; test15 ] ]
