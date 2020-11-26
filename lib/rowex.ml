@@ -127,7 +127,7 @@ module rec Leaf : sig
 end = struct
   type t = int
 
-  let prj x = x asr 1 [@@inline always]
+  let prj x = x lsr 1 [@@inline always]
   let inj x = (x lsl 1) lor 1 [@@inline always]
 end
 
@@ -575,7 +575,7 @@ let rec _check_prefix_pessimistic ~key ~minimum ~prefix ~prefix_count ~level idx
         then
           let res = Bytes.make _prefix '\000' in
           let* key = Lazy.force minimum in
-          let len = min (prefix_count - ((level land 0x7fffffff) - (level asr 31)) - 1) _prefix in
+          let len = min (prefix_count - ((level land 0x7fffffff) - (level lsr 31)) - 1) _prefix in
           if len > 0 then Bytes.blit_string key ((level land 0x7fffffff) + 1) res 0 len ;
           return (Bytes.unsafe_to_string res)
         else
