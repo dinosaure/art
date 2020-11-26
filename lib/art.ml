@@ -70,9 +70,10 @@ let[@coverage off] pp_n16 ppf keys =
     Fmt.(Dump.array pp_char)
     (Array.init 16 (fun i -> keys.!{i}))
 
-let[@coverage off] pp_n48 _ppf _keys = ()
+let[@coverage off] pp_n48 ppf keys =
+  Fmt.pf ppf "%a" Fmt.(Dump.array pp_char) (Array.init 16 (fun i -> keys.!{i}))
 
-let[@coverage off] pp_n256 _ppf _keys = ()
+let[@coverage off] pp_n256 _ppf N256_Key = ()
 
 let[@coverage off] pp_keys : type a. kind:a kind -> a Fmt.t = fun ~kind -> match kind with
   | N4 -> pp_n4
