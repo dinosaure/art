@@ -232,6 +232,55 @@ let test15 =
   Alcotest.check_raises "not found" Not_found (fun () -> ignore @@ Art.find tree (Art.key "\255"))
 ;;
 
+let key = Alcotest.testable (fun ppf (v : Art.key) -> Fmt.pf ppf "%S" (v :> string))
+        (fun (a:Art.key) (b:Art.key) -> String.equal (a:>string) (b:>string))
+
+let test16 =
+  Alcotest.test_case "test16" `Quick @@ fun () ->
+  let k1 = Art.key "\001" in
+  let k2 = Art.key "\002" in
+  let k3 = Art.key "\003" in
+  let k4 = Art.key "\004" in
+  let tree = Art.make () in
+  Art.insert tree k4 4 ;
+  Art.insert tree k3 3 ;
+  Art.insert tree k2 2 ;
+  Art.insert tree k1 1 ;
+  Alcotest.(check (pair key int)) "minimum" (Art.minimum tree) (k1, 1)
+;;
+
+let test17 =
+  Alcotest.test_case "test17" `Quick @@ fun () ->
+  let ks = Array.init 16 (fun i -> Art.key (String.make 1 (Char.unsafe_chr (i + 1)))) in
+  let tree = Art.make () in
+  Array.iteri (fun i k -> Art.insert tree k i) ks ;
+  Alcotest.(check (pair key int)) "minimum" (Art.minimum tree) (Art.key "\001", 0)
+;;
+
+let test18 =
+  Alcotest.test_case "test18" `Quick @@ fun () ->
+  let ks = Array.init 48 (fun i -> Art.key (String.make 1 (Char.unsafe_chr (i + 48)))) in
+  let tree = Art.make () in
+  Array.iteri (fun i k -> Art.insert tree k i) ks ;
+  Alcotest.(check (pair key int)) "minimum" (Art.minimum tree) (Art.key "\048", 0)
+;;
+
+let test19 =
+  Alcotest.test_case "test19" `Quick @@ fun () ->
+  let ks = Array.init 256 @@ function
+          | 0 -> Art.key ""
+          | n -> Art.key (String.make 1 (Char.unsafe_chr n)) in
+  let tree = Art.make () in
+  Array.iteri (fun i k -> Art.insert tree k i) ks ;
+  Alcotest.(check (pair key int)) "minimum" (Art.minimum tree) (Art.key "", 0)
+;;
+
+let test20 =
+  Alcotest.test_case "test20" `Quick @@ fun () ->
+  let tree = Art.make () in
+  Alcotest.check_raises "minimum" (Invalid_argument "empty tree") @@ fun () -> ignore (Art.minimum tree)
+;;
+
 let () =
   Alcotest.run "art"
     [ "art", [ test01
@@ -248,4 +297,9 @@ let () =
              ; test12
              ; test13
              ; test14
-             ; test15 ] ]
+             ; test15 ]
+    ; "minimum", [ test16
+                 ; test17
+                 ; test18
+                 ; test19
+                 ; test20 ] ]
