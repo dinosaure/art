@@ -1,8 +1,25 @@
 (executable
  (name test)
+ (modules test)
  (libraries art alcotest))
 
-(alias
- (name runtest)
- (deps (:test test.exe))
- (action (run %{test} --color=always)))
+(executable
+ (name persistent)
+ (modules persistent)
+ (libraries mmap base64 rowex rowex.persistent unix alcotest bos))
+
+(rule
+ (alias runtest)
+ (package art)
+ (deps
+  (:test test.exe))
+ (action
+  (run %{test} --color=always)))
+
+(rule
+ (alias runtest)
+ (package rowex)
+ (deps
+  (:test persistent.exe))
+ (action
+  (run %{test} --color=always)))

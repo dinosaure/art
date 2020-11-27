@@ -3,10 +3,9 @@
 #if defined(__clang__) || __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 4)
 #define ml_ctz __builtin_ctz
 #else
-
 int
 ml_ctz(intnat x)
-{ 
+{
   int n;
   intnat y;
 #ifdef ARCH_SIXTYFOUR

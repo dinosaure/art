@@ -161,6 +161,126 @@ let test10 =
   Alcotest.(check int) "N48 -> N256" (Art.find tree (Art.key "O\128)\231\192O\184f{\223\232")) 51
 ;;
 
+let test11 =
+  Alcotest.test_case "test11" `Quick @@ fun () ->
+  let tree = Art.make () in
+  Art.insert tree (Art.key "foo") 1 ;
+  Alcotest.(check int) "foo" (Art.find tree (Art.key "foo")) 1 ;
+  Art.insert tree (Art.key "fo") 2 ;
+  Alcotest.(check int) "foo" (Art.find tree (Art.key "foo")) 1 ;
+  Alcotest.(check int) "fo" (Art.find tree (Art.key "fo")) 2 ;
+  Art.insert tree (Art.key "foobar") 3 ;
+  Alcotest.(check int) "foo" (Art.find tree (Art.key "foo")) 1 ;
+  Alcotest.(check int) "fo" (Art.find tree (Art.key "fo")) 2 ;
+  Alcotest.(check int) "foobar" (Art.find tree (Art.key "foobar")) 3
+;;
+
+let test12 =
+  Alcotest.test_case "test12" `Quick @@ fun () ->
+  let tree = Art.make () in
+  Art.insert tree (Art.key "a0") 0 ;
+  Art.insert tree (Art.key "a1") 1 ;
+  Art.insert tree (Art.key "a2") 2 ;
+  Art.insert tree (Art.key "a3") 3 ;
+  Alcotest.(check int) "a0" (Art.find tree (Art.key "a0")) 0 ;
+  Alcotest.(check int) "a1" (Art.find tree (Art.key "a1")) 1 ;
+  Alcotest.(check int) "a2" (Art.find tree (Art.key "a2")) 2 ;
+  Alcotest.(check int) "a3" (Art.find tree (Art.key "a3")) 3
+;;
+
+let test13 =
+  Alcotest.test_case "test13" `Quick @@ fun () ->
+  let k1 = Art.key (String.make 15 'a' ^ "foo") in
+  let k2 = Art.key (String.make 15 'a' ^ "bar") in
+  let k3 = Art.key (String.make 20 'a' ^ "foobar") in
+  let k4 = Art.key (String.make 20 'a' ^ "barfoo") in
+  let tree = Art.make () in
+  Art.insert tree k1 1 ;
+  Art.insert tree k2 2 ;
+  Art.insert tree k3 3 ;
+  Art.insert tree k4 4 ;
+  Alcotest.(check int) (k1 :> string) (Art.find tree k1) 1 ;
+  Alcotest.(check int) (k2 :> string) (Art.find tree k2) 2 ;
+  Alcotest.(check int) (k3 :> string) (Art.find tree k3) 3 ;
+  Alcotest.(check int) (k4 :> string) (Art.find tree k4) 4
+;;
+
+let test14 =
+  Alcotest.test_case "test14" `Quick @@ fun () ->
+  let k1 = Art.key (String.make 15 'a' ^ "foo") in
+  let k2 = Art.key (String.make 15 'a' ^ "bar") in
+  let k3 = Art.key (String.make 11 'a') in
+  let k4 = Art.key (String.make 10 'a') in
+  let k5 = Art.key (String.make 12 'a') in
+  let tree = Art.make () in
+  Art.insert tree k1 1 ;
+  Art.insert tree k2 2 ;
+  Art.insert tree k3 3 ;
+  Alcotest.(check int) (k1 :> string) (Art.find tree k1) 1 ;
+  Alcotest.(check int) (k2 :> string) (Art.find tree k2) 2 ;
+  Alcotest.(check int) (k3 :> string) (Art.find tree k3) 3 ;
+  (* XXX(dinosaure): see around out of prefix. *)
+  Alcotest.check_raises (k4 :> string) Not_found (fun () -> ignore @@ Art.find tree k4) ;
+  Alcotest.check_raises (k5 :> string) Not_found (fun () -> ignore @@ Art.find tree k5)
+;;
+
+let test15 =
+  Alcotest.test_case "test15" `Quick @@ fun () ->
+  let ks = Array.init 200 (function 0 -> Art.key "" | i -> Art.key (String.make 1 (Char.unsafe_chr i))) in
+  let tree = Art.make () in
+  Array.iteri (fun i k -> Art.insert tree k i) ks ;
+  Alcotest.check_raises "not found" Not_found (fun () -> ignore @@ Art.find tree (Art.key "\255"))
+;;
+
+let key = Alcotest.testable (fun ppf (v : Art.key) -> Fmt.pf ppf "%S" (v :> string))
+        (fun (a:Art.key) (b:Art.key) -> String.equal (a:>string) (b:>string))
+
+let test16 =
+  Alcotest.test_case "test16" `Quick @@ fun () ->
+  let k1 = Art.key "\001" in
+  let k2 = Art.key "\002" in
+  let k3 = Art.key "\003" in
+  let k4 = Art.key "\004" in
+  let tree = Art.make () in
+  Art.insert tree k4 4 ;
+  Art.insert tree k3 3 ;
+  Art.insert tree k2 2 ;
+  Art.insert tree k1 1 ;
+  Alcotest.(check (pair key int)) "minimum" (Art.minimum tree) (k1, 1)
+;;
+
+let test17 =
+  Alcotest.test_case "test17" `Quick @@ fun () ->
+  let ks = Array.init 16 (fun i -> Art.key (String.make 1 (Char.unsafe_chr (i + 1)))) in
+  let tree = Art.make () in
+  Array.iteri (fun i k -> Art.insert tree k i) ks ;
+  Alcotest.(check (pair key int)) "minimum" (Art.minimum tree) (Art.key "\001", 0)
+;;
+
+let test18 =
+  Alcotest.test_case "test18" `Quick @@ fun () ->
+  let ks = Array.init 48 (fun i -> Art.key (String.make 1 (Char.unsafe_chr (i + 48)))) in
+  let tree = Art.make () in
+  Array.iteri (fun i k -> Art.insert tree k i) ks ;
+  Alcotest.(check (pair key int)) "minimum" (Art.minimum tree) (Art.key "\048", 0)
+;;
+
+let test19 =
+  Alcotest.test_case "test19" `Quick @@ fun () ->
+  let ks = Array.init 256 @@ function
+          | 0 -> Art.key ""
+          | n -> Art.key (String.make 1 (Char.unsafe_chr n)) in
+  let tree = Art.make () in
+  Array.iteri (fun i k -> Art.insert tree k i) ks ;
+  Alcotest.(check (pair key int)) "minimum" (Art.minimum tree) (Art.key "", 0)
+;;
+
+let test20 =
+  Alcotest.test_case "test20" `Quick @@ fun () ->
+  let tree = Art.make () in
+  Alcotest.check_raises "minimum" (Invalid_argument "empty tree") @@ fun () -> ignore (Art.minimum tree)
+;;
+
 let () =
   Alcotest.run "art"
     [ "art", [ test01
@@ -172,4 +292,14 @@ let () =
              ; test07
              ; test08
              ; test09
-             ; test10 ] ]
+             ; test10
+             ; test11
+             ; test12
+             ; test13
+             ; test14
+             ; test15 ]
+    ; "minimum", [ test16
+                 ; test17
+                 ; test18
+                 ; test19
+                 ; test20 ] ]
