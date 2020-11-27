@@ -23,9 +23,8 @@ type 'a kind =
   | N48  : n48  kind
   | N256 : n256 kind
   | NULL : unit kind
-and n4 =
-  { mutable n0_1 : int
-  ; mutable n2_3 : int }
+and n4 = bytes
+(* XXX(dinosaure): [Obj.(size (repr "\000\000\000\000"))] < [Obj.(size (repr { _= 0; _= 0; }))] *)
 and n16 = bytes
 and n48 = bytes
 and n256 = N256_Key
@@ -61,9 +60,10 @@ let[@coverage off] pp_char ppf = function
   | '\x21' .. '\x7e' as chr -> Fmt.char ppf chr
   | chr -> Fmt.pf ppf "%02x" (Char.code chr)
 
-let[@coverage off] pp_n4 ppf { n0_1; n2_3; } =
-  Fmt.pf ppf "%a" Fmt.(Dump.array (using Char.unsafe_chr pp_char))
-    [| n0_1 land 0xff; n0_1 lsr 8; n2_3 land 0xff; n2_3 lsr 8 |]
+let[@coverage off] pp_n4 ppf keys =
+  Fmt.pf ppf "%a"
+    Fmt.(Dump.array pp_char)
+    (Array.init 4 (fun i -> keys.!{i}))
 
 let[@coverage off] pp_n16 ppf keys =
   Fmt.pf ppf "%a"
@@ -131,26 +131,19 @@ let n4 () : n4 record =
   let record =
     { prefix; prefix_length= 0;
       count= 0;
-      kind= N4; keys= { n0_1= 0; n2_3= 0; } } in
+      kind= N4; keys= Bytes.make 4 '\000' } in
   record
 
 let n4_shift n4 = function
   | 0 ->
-    n4.n2_3 <- ((n4.n2_3 lsl 8) land 0xffff) lor ((n4.n0_1 lsr 8) land 0xff)
-  ; n4.n0_1 <- (n4.n0_1 lsl 8) land 0xffff
+    n4.!{3} <- n4.!{2}
+  ; n4.!{2} <- n4.!{1}
+  ; n4.!{1} <- n4.!{0}
   | 1 ->
-    n4.n2_3 <- ((n4.n2_3 lsl 8) land 0xffff) lor ((n4.n0_1 lsr 8) land 0xff)
-  ; n4.n0_1 <- n4.n0_1 land 0xff
-  | 2 ->
-    n4.n2_3 <- (n4.n2_3 lsl 8) land 0xffff
-  | _ -> (()[@coverage off])
-
-let n4_set n4 idx chr = match idx with
-  | 0 -> n4.n0_1 <- n4.n0_1 lor chr
-  | 1 -> n4.n0_1 <- n4.n0_1 lor (chr lsl 8)
-  | 2 -> n4.n2_3 <- n4.n2_3 lor chr
-  | 3 -> n4.n2_3 <- n4.n2_3 lor (chr lsl 8)
-  | _ -> (()[@coverage off])
+    n4.!{3} <- n4.!{2}
+  ; n4.!{2} <- n4.!{1}
+  | _ (* 2 *) ->
+    n4.!{3} <- n4.!{2}
 
 let n16 prefix : n16 record =
   let record =
@@ -246,29 +239,26 @@ let add_child_n16
            add_child_n48 node48 null children' chr node ;
            tree := Node { header= Header node48; children= children' } )
 
+let rec iter_child_n4 keys idx max chr =
+  if idx < max then ( if Char.code chr <= Char.code keys.!{idx}
+                      then idx 
+                      else iter_child_n4 keys (succ idx) max chr )
+  else max
+
 let add_child_n4
   : n4 record -> 'a elt ref -> 'a elt array -> char -> 'a elt -> unit
   = fun record tree children chr node ->
     if record.count < 4
-    then ( let idx = ref 0 in
-           let max = record.count in
-           let cmd = Char.code chr in
-           if !idx < max && cmd >= record.keys.n0_1 land 0xff then incr idx ;
-           if !idx < max && cmd >= record.keys.n0_1 lsr 8 then incr idx ;
-           if !idx < max && cmd >= record.keys.n2_3 land 0xff then incr idx ;
-           if !idx < max && cmd >= record.keys.n2_3 lsr 8 then incr idx ;
-           n4_shift record.keys !idx ;
-           Array.blit children !idx children (!idx + 1) (record.count - !idx) ;
-           n4_set record.keys !idx (Char.code chr) ;
-           Array.unsafe_set children (!idx) node ;
+    then ( let idx = iter_child_n4 record.keys 0 record.count chr in
+           n4_shift record.keys idx ;
+           Array.blit children idx children (idx + 1) (record.count - idx) ;
+           record.keys.!{idx} <- chr ;
+           Array.unsafe_set children (idx) node ;
            record.count <- record.count + 1 )
     else ( let node16 = n16 record.prefix in
            let children' = Array.make 16 empty_elt in
            Array.blit children 0 children' 0 4 ;
-           node16.keys.!{0} <- Char.unsafe_chr (record.keys.n0_1 land 0xff) ;
-           node16.keys.!{1} <- Char.unsafe_chr (record.keys.n0_1 lsr 8) ;
-           node16.keys.!{2} <- Char.unsafe_chr (record.keys.n2_3 land 0xff) ;
-           node16.keys.!{3} <- Char.unsafe_chr (record.keys.n2_3 lsr 8) ;
+           Bytes.unsafe_blit record.keys 0 node16.keys 0 4 ;
            copy_header ~src:record ~dst:node16 ;
            let null = ref empty_elt in
            add_child_n16 node16 null children' chr node ;
@@ -285,13 +275,13 @@ let find_child
     ( match record.kind with
       | N4 ->
         let m = record.count in
-        if m > 0 && record.keys.n0_1 land 0xff = code
+        if m > 0 && Char.code record.keys.!{0} = code
         then res := 0
-        else if m > 1 && (record.keys.n0_1 lsr 8) land 0xff = code
+        else if m > 1 && Char.code record.keys.!{1} = code
         then res := 1
-        else if m > 2 && record.keys.n2_3 land 0xff = code
+        else if m > 2 && Char.code record.keys.!{2} = code
         then res := 2
-        else if m > 3 && (record.keys.n2_3 lsr 8) land 0xff = code
+        else if m > 3 && Char.code record.keys.!{3} = code
         then res := 3
       | N16 ->
         (* TODO(dinosaure): can be replaced by SSE instr. *)
@@ -325,7 +315,7 @@ let rec minimum = function
     idx := Char.code keys.!{!idx} ; minimum (Array.unsafe_get children !idx)
   | Node { header= Header { kind= N256; _ }; children; } ->
     let idx = ref 0 in
-    while Array.unsafe_get children !idx != empty_elt do incr idx done ;
+    while Array.unsafe_get children !idx == empty_elt do incr idx done ;
     minimum (Array.unsafe_get children !idx)
   | Node { header= Header { kind= NULL; _ }; _ } -> invalid_arg "empty tree"
 
