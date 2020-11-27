@@ -69,14 +69,28 @@ let () =
     | exception Not_found -> failf "Error with: @[<hov>%a@]" Fmt.(Dump.list pp_binding) lst in
   List.iter check uniq
 
+(* XXX(dinosaure): we can use [String.compare] but I would like to
+ * ensure ordering on tests. *)
+let string_compare a b =
+  let idx = ref 0 in
+  let res = ref 0 in
+  while !idx < String.length a && !idx < String.length b &&
+        ( res := Char.code a.[!idx] - Char.code b.[!idx]
+        ; !res = 0 )
+  do incr idx done ;
+  if !res = 0 && String.length a = String.length b then 0
+  else if !res = 0
+  then ( if !idx = String.length a then 0 - Char.code b.[!idx]
+         else Char.code a.[!idx] )
+  else !res
+
 let () =
   add_test ~name:"art/minimum" [ list1 (pair key int) ] @@ fun lst ->
   let art = Art.make () in
   List.iter (fun (k, v) -> Art.insert art k v) lst ;
-  let uniq = List.stable_sort (fun ((a : Art.key), _) ((b : Art.key), _) -> String.compare (a:>string) (b:>string)) lst in
+  let uniq = List.stable_sort (fun ((a : Art.key), _) ((b : Art.key), _) -> string_compare (a:>string) (b:>string)) lst in
   let uniq = unique (fun (a:Art.key) (b:Art.key) -> String.equal (a:>string) (b:>string)) uniq in
   let (k0, v0) = List.hd uniq in
   let (k1, v1) = Art.minimum art in
-  Fmt.pr "@[<hov>%a@]\n%!" (Art.pp Fmt.int) art ;
   check_eq ~pp:(fun ppf (v:Art.key) -> Fmt.pf ppf "%S" (v :> string)) k0 k1 ;
   check_eq ~pp:Fmt.int v0 v1
