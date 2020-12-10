@@ -1,20 +1,3 @@
-external random_seed : unit -> int array = "caml_sys_random_seed"
-
-let seed = "4EygbdYh+v35vvrmD9YYP4byT5E3H7lTeXJiIj+dQnc="
-let seed = Base64.decode_exn seed
-
-let seed =
-  let res = Array.make (String.length seed / 2) 0 in
-  for i = 0 to (String.length seed / 2) - 1 do
-    res.(i) <- (Char.code seed.[i * 2] lsl 8) lor Char.code seed.[(i * 2) + 1]
-  done;
-  res
-
-let () =
-  let random_seed = seed in
-  Fmt.pr "Random: %a.\n%!" Fmt.(Dump.array int) random_seed;
-  Random.full_init random_seed
-
 let reporter ppf =
   let report src level ~over k msgf =
     let k _ =
@@ -31,9 +14,6 @@ let reporter ppf =
   { Logs.report }
 
 (*
-let () = Fmt_tty.setup_std_outputs ~style_renderer:`Ansi_tty ~utf_8:true ()
-let () = Logs.set_reporter (reporter Fmt.stdout)
-let () = Logs.set_level ~all:true (Some Logs.Debug)
 *)
 
 open Rowex
@@ -101,19 +81,61 @@ let test_spsc ~(order:Ringbuffer.order) ?(len= Random.int (1 lsl (order :> int))
   | _, Error exit ->
     return (R.error_msgf "Writer exits with %03d" exit)
 
-let main ?len order =
+let main order len () () =
   let open Bos in
   OS.File.tmp "ring-%s" >>= fun path ->
   Logs.debug (fun m -> m "Ring file: %a" Fpath.pp path) ;
   create ~order (Fpath.to_string path) ;
   Fiber.run (test_spsc ~order ?len (Fpath.to_string path))
 
-let () = match Sys.argv with
-  | [| _; order; |] ->
-    let order = Ringbuffer.order_of_int (int_of_string order) in
-    R.failwith_error_msg (main order)
-  | [| _; order; len |] ->
-    let order = Ringbuffer.order_of_int (int_of_string order) in
-    let len = int_of_string len in
-    R.failwith_error_msg (main ~len order)
-  | _ -> Fmt.epr "%s <order> [<len>]\n%!" Sys.argv.(0)
+open Cmdliner
+
+let setup_logs style_renderer level =
+  Fmt_tty.setup_std_outputs ?style_renderer () ;
+  Logs.set_level level ;
+  Logs.set_reporter (reporter Fmt.stderr)
+
+let setup_logs =
+  Term.(const setup_logs $ Fmt_cli.style_renderer () $ Logs_cli.level ())
+
+external random_seed : unit -> int array = "caml_sys_random_seed"
+
+let seed = "4EygbdYh+v35vvrmD9YYP4byT5E3H7lTeXJiIj+dQnc="
+let seed = Base64.decode_exn seed
+
+let seed =
+  let res = Array.make (String.length seed / 2) 0 in
+  for i = 0 to (String.length seed / 2) - 1 do
+    res.(i) <- (Char.code seed.[i * 2] lsl 8) lor Char.code seed.[(i * 2) + 1]
+  done;
+  res
+
+let setup_random = function
+  | true ->
+    let random_seed = seed in
+    Fmt.pr "Random: %a.\n%!" Fmt.(Dump.array int) random_seed;
+    Random.full_init random_seed
+  | false -> Random.self_init ()
+
+let predictable ?env () =
+  let doc = Fmt.str "Use a static seed to initiate the random generator." in
+  Arg.(value & flag & info ~doc ?env [ "predictable" ])
+
+let setup_random =
+  Term.(const setup_random $ predictable ())
+
+let order =
+  let parser x = match int_of_string x with
+    | x -> Ok (Ringbuffer.order_of_int x)
+    | exception _ -> R.error_msgf "Invalid order: %S" x in
+  let pp ppf (order:Ringbuffer.order) = Fmt.int ppf (order :> int) in
+  Arg.conv (parser, pp)
+
+let order = Arg.(required & pos 0 (some order) None & info [])
+let length = Arg.(value & pos 1 (some int) None & info [])
+
+let main =
+  Term.(term_result (const main $ order $ length $ setup_random $ setup_logs)),
+  Term.info "ring"
+
+let () = Term.(exit @@ eval main)

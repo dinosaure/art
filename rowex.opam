@@ -23,6 +23,7 @@ depends: [
   "mmap"        {with-test}
   "base64"      {with-test}
   "bos"         {with-test}
+  "cmdliner"    {with-test}
 ]
 
 available: [ arch != "ppc64"

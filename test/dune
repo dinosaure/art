@@ -11,8 +11,8 @@
 (executable
  (name rb)
  (modules rb fiber)
- (libraries bos rresult fmt.tty logs.fmt fmt mmap base64 rowex
-   rowex.persistent unix))
+ (libraries cmdliner bos rresult fmt.tty fmt.cli logs.fmt logs.cli fmt mmap
+   base64 rowex rowex.persistent unix))
 
 (executable
  (name test_ring)
