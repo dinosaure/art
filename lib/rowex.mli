@@ -69,6 +69,7 @@ module Ringbuffer : sig
 
   val enqueue : order:order -> non_empty:bool -> [ `Rd | `Wr ] Addr.t -> int -> unit t
   val dequeue : order:order -> non_empty:bool -> [ `Rd | `Wr ] Addr.t -> int t
+  val peek : order:order -> non_empty:bool -> [ `Rd | `Wr ] Addr.t -> int t
 
   val order_of_int : int -> order
   val size_of_order : order -> int

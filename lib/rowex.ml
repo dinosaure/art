@@ -1273,44 +1273,33 @@ module Ringbuffer = struct
 
     (_enqueue_retry[@tailcall]) ~order ~non_empty ring tail t_cycle entry e_idx
 
+  and _enqueue ~order ~non_empty ring tail t_cycle t_idx entry e_idx =
+    let entry = ref entry in
+    let* res = compare_exchange ~weak:true
+        ~m0:Acq_rel ~m1:Acquire
+        Addr.(ring + _array + (t_idx * size_of_word)) Value.beintnat
+        entry (t_cycle lxor e_idx) in
+    if not res
+    then (_enqueue_retry[@tailcall]) ~order ~non_empty ring tail t_cycle !entry e_idx
+    else
+      ( Log.debug (fun m -> m "ring[%8x] <- %8x ^ %d = %8x" t_idx t_cycle e_idx
+                      (t_cycle lxor e_idx)) ;
+        let* threshold = atomic_get Addr.(ring + _threshold) Value.beintnat in
+        let threshold' = (1 lsl order) + ((1 lsl order) * 2) - 1 in
+        if not non_empty && threshold <> threshold'
+        then atomic_set Addr.(ring + _threshold) Value.beintnat threshold'
+        else return () )
+
   and _enqueue_retry ~order ~non_empty ring tail t_cycle entry e_idx =
     let n = (1 lsl order) * 2 in
     let t_idx = map tail order n in
     let e_cycle = entry lor (2 * n - 1) in
     if e_cycle < t_cycle && entry = e_cycle
-    then
-      let entry = ref entry in
-      let* res = compare_exchange ~weak:true
-          ~m0:Acq_rel ~m1:Acquire
-          Addr.(ring + _array + (t_idx * size_of_word)) Value.beintnat
-          entry (t_cycle lxor e_idx) in
-      if not res then _enqueue_retry ~order ~non_empty ring tail t_cycle !entry e_idx
-      else
-        ( Log.debug (fun m -> m "ring[%8x] <- %8x ^ %d = %8x" t_idx t_cycle e_idx
-                        (t_cycle lxor e_idx)) ;
-          let* threshold = atomic_get Addr.(ring + _threshold) Value.beintnat in
-          let threshold' = (1 lsl order) + ((1 lsl order) * 2) - 1 in
-          if not non_empty && threshold <> threshold'
-          then atomic_set Addr.(ring + _threshold) Value.beintnat threshold'
-          else return () )
+    then (_enqueue[@tailcall]) ~order ~non_empty ring tail t_cycle t_idx entry e_idx
     else
       let* head = atomic_get ~memory_order:Acquire Addr.(ring + _head) Value.beintnat in
       if e_cycle < t_cycle && entry = e_cycle lxor n && head <= tail
-      then
-        let entry = ref entry in
-        let* res = compare_exchange ~weak:true
-            ~m0:Acq_rel ~m1:Acquire
-            Addr.(ring + _array + (t_idx * size_of_word)) Value.beintnat
-            entry (t_cycle lxor e_idx) in
-        if not res then _enqueue_retry ~order ~non_empty ring tail t_cycle !entry e_idx
-        else
-          ( Log.debug (fun m -> m "ring[%8x] <- %8x ^ %d = %8x" t_idx t_cycle e_idx
-                          (t_cycle lxor e_idx)) ;
-            let* threshold = atomic_get Addr.(ring + _threshold) Value.beintnat in
-            let threshold' = (1 lsl order) + ((1 lsl order) * 2) - 1 in
-            if not non_empty && threshold <> threshold'
-            then atomic_set Addr.(ring + _threshold) Value.beintnat threshold'
-            else return () )
+      then (_enqueue[@tailcall]) ~order ~non_empty ring tail t_cycle t_idx entry e_idx
       else (_enqueue_loop[@tailcall]) ~order ~non_empty ring e_idx
 
   let enqueue ~order ~non_empty ring e_idx =
@@ -1413,6 +1402,26 @@ module Ringbuffer = struct
     let* threshold = atomic_get Addr.(ring + _threshold) Value.beintnat in
     if not non_empty && threshold < 0 then return (lnot 0)
     else (_dequeue_0[@tailcall]) ~order ~non_empty ring
+
+  let peek ~order ~non_empty ring =
+    Log.debug (fun m -> m "dequeue") ;
+    let* threshold = atomic_get Addr.(ring + _threshold) Value.beintnat in
+    if not non_empty && threshold < 0 then return (lnot 0)
+    else
+      let n = (1 lsl (order + 1)) in
+      let* head = atomic_get Addr.(ring + _head) Value.beintnat ~memory_order:Acq_rel in
+      let h_cycle = (head lsl 1) lor (2 * n - 1) in
+      let h_idx = map head order n in
+      let* entry = atomic_get
+          Addr.(ring + _array + (h_idx * size_of_word))
+          Value.beintnat ~memory_order:Acquire in
+      Log.debug (fun m -> m "ring[%8x] = %8x" h_idx entry) ;
+      let e_cycle = entry lor (2 * n - 1) in
+      Log.debug (fun m -> m "e-cycle: %16x" e_cycle) ;
+      Log.debug (fun m -> m "h-cycle: %16x" h_cycle) ;
+      if e_cycle = h_cycle
+      then return (entry land (n - 1))
+      else return (lnot 0)
 
   let order_of_int x = x
   let size_of_order order = (size_of_word * 3) + (size_of_word lsl (order + 1))

@@ -13,9 +13,6 @@ let reporter ppf =
     msgf @@ fun ?header ?tags fmt -> with_metadata header tags k ppf fmt in
   { Logs.report }
 
-(*
-*)
-
 open Rowex
 open Persistent
 open Rresult

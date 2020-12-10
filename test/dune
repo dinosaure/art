@@ -19,6 +19,11 @@
  (modules test_ring)
  (libraries unix))
 
+(executable
+ (name ring)
+ (modules ring)
+ (libraries mmap base64 rowex rowex.persistent unix alcotest bos))
+
 (rule
  (alias runtest)
  (package art)
@@ -43,3 +48,11 @@
   (:rb rb.exe))
  (action
   (run %{test})))
+
+(rule
+ (alias runtest)
+ (package rowex)
+ (deps
+  (:test ring.exe))
+ (action
+  (run %{test} --color=always)))
