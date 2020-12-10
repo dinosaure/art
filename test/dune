@@ -8,6 +8,17 @@
  (modules persistent)
  (libraries mmap base64 rowex rowex.persistent unix alcotest bos))
 
+(executable
+ (name rb)
+ (modules rb fiber)
+ (libraries bos rresult fmt.tty logs.fmt fmt mmap base64 rowex
+   rowex.persistent unix))
+
+(executable
+ (name test_ring)
+ (modules test_ring)
+ (libraries unix))
+
 (rule
  (alias runtest)
  (package art)
@@ -23,3 +34,12 @@
   (:test persistent.exe))
  (action
   (run %{test} --color=always)))
+
+(rule
+ (alias runtest)
+ (package rowex)
+ (deps
+  (:test test_ring.exe)
+  (:rb rb.exe))
+ (action
+  (run %{test})))

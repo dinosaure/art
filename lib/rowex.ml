@@ -190,14 +190,19 @@ type 'c memory_order =
   | Relaxed : [< `Rd | `Wr ] memory_order
   | Seq_cst : [< `Rd | `Wr ] memory_order
   | Release : [< `Wr ] memory_order
+  | Acq_rel : [< `Wr | `Rd ] memory_order
+  | Acquire : [< `Rd ] memory_order
 
 type 'a t =
   | Atomic_get : [< `Rd ] memory_order * [> `Rd ] Addr.t * ([ `Atomic ], 'a) value -> 'a t
   | Atomic_set : [< `Wr ] memory_order * [> `Wr ] Addr.t * ([ `Atomic ], 'a) value * 'a -> unit t
-  | Fetch_add  : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> unit t
+  | Fetch_add  : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
+  | Fetch_or   : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
+  | Fetch_sub  : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
   | Pause_intrinsic : unit t
   | Compare_exchange : [> `Rd | `Wr ] Addr.t *
-                       ([ `Atomic ], 'a) value * 'a * 'a * bool * [< `Rd | `Wr ] memory_order -> bool t
+                       ([ `Atomic ], 'a) value * 'a ref * 'a * bool * [< `Rd | `Wr ] memory_order
+                       * [< `Rd | `Wr ] memory_order -> bool t
   | Get : [> `Rd ] Addr.t * ('c, 'a) value -> 'a t
   | Allocate : string list * int -> [ `Rd | `Wr ] Addr.t t
   | Delete : _ Addr.t * int -> unit t
@@ -213,6 +218,8 @@ let pp_memory_order : type a. a memory_order fmt = fun ppf -> function
   | Seq_cst -> pf ppf "seq_cst"
   | Release -> pf ppf "release"
   | Relaxed -> pf ppf "relaxed"
+  | Acq_rel -> pf ppf "acquire-release"
+  | Acquire -> pf ppf "acquire"
 
 let pp_value : type c a. (c, a) value fmt = fun ppf -> function
   | BEInt -> pf ppf "beintnat"
@@ -243,6 +250,10 @@ let pp : type a. a t fmt = fun ppf -> function
      pf ppf "atomic_set %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
   | Fetch_add (m, addr, v, x) ->
      pf ppf "fetch_add  %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
+  | Fetch_or (m, addr, v, x) ->
+     pf ppf "fetch_or   %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
+  | Fetch_sub (m, addr, v, x) ->
+     pf ppf "fetch_sub  %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
   | Collect (addr, len) ->
      pf ppf "collect    %016x %d" (addr :> int) len
   | Delete (addr, len) ->
@@ -253,9 +264,11 @@ let pp : type a. a t fmt = fun ppf -> function
      pf ppf "allocate %d" len
   | Pause_intrinsic ->
      pf ppf "pause_intrinsic"
-  | Compare_exchange (addr, v, x, y, weak, m) ->
-     pf ppf "compare_exchange weak:%b %016x %a (%a : %a) (%a : %a)" weak (addr :> int) pp_memory_order m
-       (pp_of_value v) x pp_value v
+  | Compare_exchange (addr, v, x, y, weak, m0, m1) ->
+    pf ppf "compare_exchange weak:%b %016x %a %a (%a : %a) (%a : %a)" weak (addr :> int)
+       pp_memory_order m0
+       pp_memory_order m1
+       (pp_of_value v) !x pp_value v
        (pp_of_value v) y pp_value v
   | Bind (Allocate (_, len), _) ->
      pf ppf "allocate %d byte(s) >>= fun _ ->" len
@@ -284,9 +297,11 @@ let atomic_get ?(memory_order= Seq_cst) addr k = Atomic_get (memory_order, addr,
 let atomic_set ?(memory_order= Seq_cst) addr k v = Atomic_set (memory_order, addr, k, v)
 
 let fetch_add  ?(memory_order= Seq_cst) addr k n = Fetch_add (memory_order, addr, k, n)
+let fetch_or   ?(memory_order= Seq_cst) addr k n = Fetch_or  (memory_order, addr, k, n)
+let fetch_sub  ?(memory_order= Seq_cst) addr k n = Fetch_sub (memory_order, addr, k, n)
 
-let compare_exchange ?(memory_order= Seq_cst) ?(weak= false) addr k expected desired =
-  Compare_exchange (addr, k, expected, desired, weak, memory_order)
+let compare_exchange ?(m0= Seq_cst) ?(m1= Seq_cst) ?(weak= false) addr k expected desired =
+  Compare_exchange (addr, k, expected, desired, weak, m0, m1)
 
 let pause_intrinsic = Pause_intrinsic
 
@@ -655,7 +670,7 @@ let add_child_n256 (N256 addr) k value =
   let* () = atomic_set ~memory_order:Release
       Addr.(addr + _header_length + (k * Addr.length))
       Value.addr_rd value in
-  let* () = fetch_add
+  let* _  = fetch_add
       Addr.(addr + _header_count)
       Value.beint16 1 in
   return true
@@ -671,10 +686,10 @@ let add_child_n48 (N48 addr) k value =
     let* () = atomic_set ~memory_order:Release
         Addr.(addr + _header_length + k)
         Value.int8 compact_count in
-    let* () = fetch_add
+    let* _  = fetch_add
         Addr.(addr + _header_compact_count)
         Value.beint16 1 in
-    let* () = fetch_add
+    let* _  = fetch_add
         Addr.(addr + _header_count)
         Value.beint16 1 in
     return true
@@ -690,10 +705,10 @@ let add_child_n16 (N16 addr) k value =
     let* () = atomic_set ~memory_order:Release
         Addr.(addr + _header_length + compact_count)
         Value.int8 (k lxor 128) in
-    let* () = fetch_add
+    let* _  = fetch_add
         Addr.(addr + _header_compact_count)
         Value.beint16 1 in
-    let* () = fetch_add
+    let* _  = fetch_add
         Addr.(addr + _header_count)
         Value.beint16 1 in
     return true
@@ -709,19 +724,20 @@ let add_child_n4 (N4 addr) k value =
     let* () = atomic_set ~memory_order:Release
         Addr.(addr + _header_length + compact_count)
         Value.int8 k in
-    let* () = fetch_add
+    let* _  = fetch_add
         Addr.(addr + _header_compact_count)
         Value.beint16 1 in
-    let* () = fetch_add
+    let* _  = fetch_add
         Addr.(addr + _header_count)
         Value.beint16 1 in
     return true
 
 let write_unlock addr =
-  fetch_add Addr.(addr + _header_kind) Value.beintnat 0b10
+  let* _ = fetch_add Addr.(addr + _header_kind) Value.beintnat 0b10 in return ()
 
 let write_unlock_and_obsolete addr =
-  fetch_add Addr.(addr + _header_kind) Value.beintnat 0b11
+  let* _ = fetch_add Addr.(addr + _header_kind) Value.beintnat 0b11 in
+  return ()
 
 let is_obsolete version = (version land 1 = 1)
 
@@ -747,15 +763,16 @@ let rec write_lock_or_restart addr need_to_restart =
   if is_obsolete version
   then ( need_to_restart := true ; return () )
   else
-    let* res = compare_exchange ~weak:true Addr.(addr + _header_kind) Value.beintnat version (version + 0b10) in
+    let* res = compare_exchange ~weak:true Addr.(addr + _header_kind) Value.beintnat (ref version) (version + 0b10) in
     if not res then write_lock_or_restart addr need_to_restart else return ()
 [@@inline]
+
 
 let lock_version_or_restart addr version need_to_restart =
   if (version land 0b10 = 0b10)|| (version land 1 = 1)
   then ( need_to_restart := true ; return version)
   else
-    let* set = compare_exchange Addr.(addr + _header_kind) Value.beintnat version (version + 0b10) in
+    let* set = compare_exchange Addr.(addr + _header_kind) Value.beintnat (ref version) (version + 0b10) in
     if set then return (version + 0b10) else ( need_to_restart := true ; return version )
 
 (***** CHANGE/UPDATE CHILD *****)
@@ -986,7 +1003,8 @@ let _insert_grow_n4_n16 (N4 addr as n4) p k kp value need_to_restart =
       let* _  = add_child_n16 n16 k value in (* XXX(dinosaure): assert (_ = true); *)
       let* () = write_lock_or_restart p need_to_restart in
       if !need_to_restart
-      then ( let* () = delete addr' (_header_length + 16 + (Addr.length * 16)) in write_unlock addr )
+      then ( let* () = delete addr' (_header_length + 16 + (Addr.length * 16)) in
+             write_unlock addr )
       else
         let* () = update_child p kp (Addr.to_rdonly addr') in
         let* () = write_unlock p in
@@ -1176,7 +1194,7 @@ let rec insert root key leaf =
            seems to work. So, the check try find the diff between [key] and [key']
            from the end of these strings. The worst case is when [key = key'] of course
            but we should assume that the user does not want to insert several times
-           the same key. *) 
+           the same key. *)
         let* _version = lock_version_or_restart node version need_to_restart in
         if !need_to_restart then (restart[@tailcall]) () else
         ( let prefix = Bytes.make _prefix '\000' in
@@ -1222,3 +1240,180 @@ let insert root key value =
   let value = beintnat_to_string value in
   let* leaf = allocate [ key; pad; value ] in
   insert root key (Addr.unsafe_of_leaf (Leaf.inj leaf))
+
+[@@@warning "-32"]
+
+module Ringbuffer = struct
+  let src = Logs.Src.create "ring"
+  module Log = (val Logs.src_log src : Logs.LOG)
+
+  type order = int
+
+  let size_of_word = Sys.word_size / 8
+
+  let threshold half n = half + n - 1 [@@inline]
+  let empty = lnot 0
+  let power_of_two ~order = 1 lsl order [@@inline]
+
+  let map idx order n =
+    let min = 4 in
+    (((idx land (n - 1)) asr (order + 1 - min)) lor ((idx lsl min) land (n - 1)))
+
+  let _tail = 0
+  let _head = size_of_word
+  let _threshold = _head + size_of_word
+  let _array = _threshold + size_of_word
+
+  let rec _enqueue_loop ~order ~non_empty ring e_idx =
+    let n = (1 lsl order) * 2 in
+    let* tail = fetch_add ~memory_order:Acq_rel Addr.(ring + _tail) Value.beintnat 1 in
+    let t_cycle = (tail lsl 1) lor (2 * n - 1) in
+    let* entry = atomic_get ~memory_order:Acquire
+        Addr.(ring + _array + ((map tail order n) * size_of_word)) Value.beintnat in
+
+    (_enqueue_retry[@tailcall]) ~order ~non_empty ring tail t_cycle entry e_idx
+
+  and _enqueue_retry ~order ~non_empty ring tail t_cycle entry e_idx =
+    let n = (1 lsl order) * 2 in
+    let t_idx = map tail order n in
+    let e_cycle = entry lor (2 * n - 1) in
+    if e_cycle < t_cycle && entry = e_cycle
+    then
+      let entry = ref entry in
+      let* res = compare_exchange ~weak:true
+          ~m0:Acq_rel ~m1:Acquire
+          Addr.(ring + _array + (t_idx * size_of_word)) Value.beintnat
+          entry (t_cycle lxor e_idx) in
+      if not res then _enqueue_retry ~order ~non_empty ring tail t_cycle !entry e_idx
+      else
+        ( Log.debug (fun m -> m "ring[%8x] <- %8x ^ %d = %8x" t_idx t_cycle e_idx
+                        (t_cycle lxor e_idx)) ;
+          let* threshold = atomic_get Addr.(ring + _threshold) Value.beintnat in
+          let threshold' = (1 lsl order) + ((1 lsl order) * 2) - 1 in
+          if not non_empty && threshold <> threshold'
+          then atomic_set Addr.(ring + _threshold) Value.beintnat threshold'
+          else return () )
+    else
+      let* head = atomic_get ~memory_order:Acquire Addr.(ring + _head) Value.beintnat in
+      if e_cycle < t_cycle && entry = e_cycle lxor n && head <= tail
+      then
+        let entry = ref entry in
+        let* res = compare_exchange ~weak:true
+            ~m0:Acq_rel ~m1:Acquire
+            Addr.(ring + _array + (t_idx * size_of_word)) Value.beintnat
+            entry (t_cycle lxor e_idx) in
+        if not res then _enqueue_retry ~order ~non_empty ring tail t_cycle !entry e_idx
+        else
+          ( Log.debug (fun m -> m "ring[%8x] <- %8x ^ %d = %8x" t_idx t_cycle e_idx
+                          (t_cycle lxor e_idx)) ;
+            let* threshold = atomic_get Addr.(ring + _threshold) Value.beintnat in
+            let threshold' = (1 lsl order) + ((1 lsl order) * 2) - 1 in
+            if not non_empty && threshold <> threshold'
+            then atomic_set Addr.(ring + _threshold) Value.beintnat threshold'
+            else return () )
+      else (_enqueue_loop[@tailcall]) ~order ~non_empty ring e_idx
+
+  let enqueue ~order ~non_empty ring e_idx =
+    Log.debug (fun m -> m "enqueue %d" e_idx) ;
+    let n = (1 lsl order) * 2 in
+    _enqueue_loop ~order ~non_empty ring (e_idx lxor (n - 1))
+
+  let rec _catchup ring tail head =
+    Log.debug (fun m -> m "catchup") ;
+    let tail = ref tail in
+    let* res = compare_exchange
+        ~weak:true Addr.(ring + _tail) Value.beintnat
+        tail head
+        ~m0:Acq_rel ~m1:Acquire in
+    if not res
+    then
+      let* head = atomic_get Addr.(ring + _head) Value.beintnat in
+      let* tail = atomic_get Addr.(ring + _tail) Value.beintnat in
+      if tail >= head then return ()
+      else (_catchup[@tailcall]) ring tail head
+    else return ()
+
+  let rec _dequeue_1 ~order ~non_empty ring head =
+    if not non_empty
+    then
+      ( let* tail = atomic_get Addr.(ring + _tail) Value.beintnat ~memory_order:Acquire in
+        if tail <= head + 1
+        then
+          let* () = _catchup ring tail (head + 1) in
+          let* _  = fetch_sub Addr.(ring + _threshold) Value.beintnat 1 ~memory_order:Acq_rel in
+          return (lnot 0)
+        else
+          let* res = fetch_sub Addr.(ring + _threshold) Value.beintnat 1 ~memory_order:Acq_rel in
+          if res <= 0 then return (lnot 0)
+          else (_dequeue_0[@tailcall]) ~order ~non_empty ring )
+    else (_dequeue_0[@tailcall]) ~order ~non_empty ring
+
+  and _dequeue_while ~order ~non_empty ~attempt ring head h_cycle h_idx entry =
+    let n = (1 lsl (order + 1)) in
+    let e_cycle = entry lor (2 * n - 1) in
+    Log.debug (fun m -> m "e-cycle: %16x" e_cycle) ;
+    Log.debug (fun m -> m "h-cycle: %16x" h_cycle) ;
+    if e_cycle = h_cycle
+    then
+      let* res = fetch_or
+          Addr.(ring + _array + (h_idx * size_of_word)) Value.beintnat (n - 1)
+          ~memory_order:Acq_rel in
+      Log.debug (fun m -> m "ring[%8x] |= %8x <- %d (old: %8x)" h_idx (n - 1) res entry) ;
+      Log.debug (fun m -> m "return %d" (entry land (n - 1))) ;
+      return (entry land (n - 1))
+    else if entry lor n <> e_cycle
+    then
+      let entry_new = entry land (lnot n) in
+      if entry = entry_new
+      then (_dequeue_1[@tailcall]) ~order ~non_empty ring head
+      else
+        ( if e_cycle < h_cycle
+          then
+            let entry = ref entry in
+            let* res = compare_exchange ~weak:true
+                Addr.(ring + _array + (h_idx * size_of_word)) Value.beintnat entry entry_new
+                ~m0:Acq_rel ~m1:Acquire in
+            if res then _dequeue_while ~order ~non_empty ~attempt ring head h_cycle h_idx !entry
+            else (_dequeue_1[@tailcall]) ~order ~non_empty ring head
+          else (_dequeue_1[@tailcall]) ~order ~non_empty ring head )
+    else
+      ( let attempt = succ attempt in
+        if attempt <= 10_000
+        then
+          (_dequeue_again[@tailcall]) ~order ~non_empty ~attempt ring head h_cycle h_idx
+        else
+          let entry_new = h_cycle lxor ((lnot entry) land n) in
+          if e_cycle < h_cycle
+          then
+            let entry = ref entry in
+            let* res = compare_exchange ~weak:true
+                Addr.(ring + _array + (h_idx * size_of_word)) Value.beintnat entry entry_new
+                   ~m0:Acq_rel ~m1:Acquire in
+            if res
+            then (_dequeue_while[@tailcall]) ~order ~non_empty ~attempt ring head h_cycle h_idx !entry
+            else (_dequeue_1[@tailcall]) ~order ~non_empty ring head
+          else (_dequeue_1[@tailcall]) ~order ~non_empty ring head )
+
+  and _dequeue_again ~order ~non_empty ~attempt ring head h_cycle h_idx =
+    let* entry = atomic_get
+        Addr.(ring + _array + (h_idx * size_of_word))
+        Value.beintnat ~memory_order:Acquire in
+    Log.debug (fun m -> m "ring[%8x] = %8x" h_idx entry) ;
+    (_dequeue_while[@tailcall]) ~order ~non_empty ~attempt ring head h_cycle h_idx entry
+
+  and _dequeue_0 ~order ~non_empty ring =
+    let n = (1 lsl (order + 1)) in
+    let* head = fetch_add Addr.(ring + _head) Value.beintnat 1 ~memory_order:Acq_rel in
+    let h_cycle = (head lsl 1) lor (2 * n - 1) in
+    let h_idx = map head order n in
+    (_dequeue_again[@tailcall]) ~order ~non_empty ~attempt:0 ring head h_cycle h_idx
+
+  let dequeue ~order ~non_empty ring =
+    Log.debug (fun m -> m "dequeue") ;
+    let* threshold = atomic_get Addr.(ring + _threshold) Value.beintnat in
+    if not non_empty && threshold < 0 then return (lnot 0)
+    else (_dequeue_0[@tailcall]) ~order ~non_empty ring
+
+  let order_of_int x = x
+  let size_of_order order = (size_of_word * 3) + (size_of_word lsl (order + 1))
+end

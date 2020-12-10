@@ -24,8 +24,9 @@ let create filename =
   let len = 1_048_576 in
   let fd  = Unix.openfile filename Unix.[ O_CREAT; O_RDWR ] 0o644 in
   let _   = Unix.lseek fd len Unix.SEEK_SET in
-  let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
+  let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.int Bigarray.c_layout true [| len |] in
   let memory = Bigarray.array1_of_genarray memory in
+  let memory = to_memory memory in
   let brk = size_of_word * 2 in
   atomic_set_leuintnat memory 0 Seq_cst brk ;
   let mmu = mmu_of_memory memory in
