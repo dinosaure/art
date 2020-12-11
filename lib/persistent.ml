@@ -32,7 +32,7 @@ external atomic_get_leuint31
 
 external atomic_set_leuint31
   : memory -> int -> _ memory_order -> int -> unit
-  = "caml_atomic_set_leuint31" [@@noalloc]    
+  = "caml_atomic_set_leuint31" [@@noalloc]
 
 external atomic_get_leuint64
   : memory -> int -> _ memory_order -> (int64[@unboxed])
@@ -49,21 +49,29 @@ external atomic_get_leuint128
   = "caml_atomic_get_leuint128" [@@noalloc]
 
 external atomic_fetch_add_leuint16
-  : memory -> int -> _ memory_order -> int -> unit
+  : memory -> int -> _ memory_order -> int -> int
   = "caml_atomic_fetch_add_leuint16" [@@noalloc]
 
 external atomic_fetch_add_leuintnat
-  : memory -> int -> _ memory_order -> int -> unit
+  : memory -> int -> _ memory_order -> int -> int
   = "caml_atomic_fetch_add_leuintnat" [@@noalloc]
+
+external atomic_fetch_sub_leuintnat
+  : memory -> int -> _ memory_order -> int -> int
+  = "caml_atomic_fetch_sub_leuintnat" [@@noalloc]
+
+external atomic_fetch_or_leuintnat
+  : memory -> int -> _ memory_order -> int -> int
+  = "caml_atomic_fetch_or_leuintnat" [@@noalloc]
 
 external pause_intrinsic : unit -> unit = "caml_pause_intrinsic" [@@noalloc]
 
 external atomic_compare_exchange_strong
-  : memory -> int -> int -> int -> _ memory_order -> bool
+  : memory -> int -> int ref -> int -> (_ memory_order * _ memory_order) -> bool
   = "caml_atomic_compare_exchange_strong_leuintnat" [@@noalloc]
 
 external atomic_compare_exchange_weak
-  : memory -> int -> int -> int -> _ memory_order -> bool
+  : memory -> int -> int ref -> int -> (_ memory_order * _ memory_order) -> bool
   = "caml_atomic_compare_exchange_weak_leuintnat" [@@noalloc]
 
 external get_c_string
@@ -77,6 +85,10 @@ external get_beint31
 external get_beintnat
   : memory -> int -> int
   = "caml_get_beintnat" [@@noalloc]
+
+external to_memory
+  : (_, _, Bigarray.c_layout) Bigarray.Array1.t -> memory
+  = "caml_to_memory" [@@noalloc]
 
 type mmu =
   { mutable brk : int
@@ -160,11 +172,15 @@ let rec run : type a. mmu -> a t -> a = fun ({ brk; memory; free; } as mmu) cmd 
     atomic_fetch_add_leuint16 memory (addr :> int) memory_order v
   | Fetch_add (memory_order, addr, BEInt, v) ->
     atomic_fetch_add_leuintnat memory (addr :> int) memory_order v
+  | Fetch_sub (memory_order, addr, BEInt, v) ->
+    atomic_fetch_sub_leuintnat memory (addr :> int) memory_order v
+  | Fetch_or (memory_order, addr, BEInt, v) ->
+    atomic_fetch_or_leuintnat memory (addr :> int) memory_order v
   | Pause_intrinsic -> pause_intrinsic ()
-  | Compare_exchange (addr, BEInt, a, b, true, memory_order) ->
-    atomic_compare_exchange_weak memory (addr :> int) a b memory_order
-  | Compare_exchange (addr, BEInt, a, b, false, memory_order) ->
-    atomic_compare_exchange_strong memory (addr :> int) a b memory_order
+  | Compare_exchange (addr, BEInt, a, b, true, m0, m1) ->
+    atomic_compare_exchange_weak memory (addr :> int) a b (m0, m1)
+  | Compare_exchange (addr, BEInt, a, b, false, m0, m1) ->
+    atomic_compare_exchange_strong memory (addr :> int) a b (m0, m1)
   | Get (addr, C_string) -> get_c_string memory (addr :> int)
   | Get (addr, BEInt31) -> get_beint31 memory (addr :> int)
   | Get (addr, BEInt) -> get_beintnat memory (addr :> int)
@@ -186,4 +202,30 @@ let rec run : type a. mmu -> a t -> a = fun ({ brk; memory; free; } as mmu) cmd 
   | Bind (Collect (addr, len), f) ->
     run { brk; memory; free= (((addr :> int), len) :: free) } (f ())
   | Bind (v, f) -> let v = run mmu v in run mmu (f v)
+  | cmd -> invalid_arg "Invalid operation: %a" pp cmd
+
+type ring = memory
+
+let rec rrun : type a. ring -> a t -> a = fun memory cmd ->
+  let () = match cmd with
+    | Bind _ | Return _ -> ()
+    | cmd -> Log.debug (fun m -> m "%a" pp cmd) in
+  match cmd with
+  | Atomic_get (memory_order, addr, BEInt) ->
+     atomic_get_leuintnat memory (addr :> int) memory_order
+  | Atomic_set (memory_order, addr, BEInt, v) ->
+     atomic_set_leuintnat memory (addr :> int) memory_order v
+  | Fetch_add (memory_order, addr, BEInt, v) ->
+    atomic_fetch_add_leuintnat memory (addr :> int) memory_order v
+  | Fetch_sub (memory_order, addr, BEInt, v) ->
+    atomic_fetch_sub_leuintnat memory (addr :> int) memory_order v
+  | Fetch_or (memory_order, addr, BEInt, v) ->
+    atomic_fetch_or_leuintnat memory (addr :> int) memory_order v
+  | Compare_exchange (addr, BEInt, a, b, true, m0, m1) ->
+    atomic_compare_exchange_weak memory (addr :> int) a b (m0, m1)
+  | Compare_exchange (addr, BEInt, a, b, false, m0, m1) ->
+    atomic_compare_exchange_strong memory (addr :> int) a b (m0, m1)
+  | Pause_intrinsic -> pause_intrinsic ()
+  | Return v -> v
+  | Bind (v, f) -> let v = rrun memory v in rrun memory (f v)
   | cmd -> invalid_arg "Invalid operation: %a" pp cmd

@@ -15,7 +15,7 @@
  (modules rowex)
  (public_name rowex)
  (libraries logs)
- (ocamlopt_flags -O3 -unbox-closures -unbox-closures-factor 20)
+ (ocamlopt_flags -O3)
  (foreign_stubs
   (language c)
   (flags

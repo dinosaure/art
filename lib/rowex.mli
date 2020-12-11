@@ -36,14 +36,19 @@ type 'c memory_order =
   | Relaxed : [< `Rd | `Wr ] memory_order
   | Seq_cst : [< `Rd | `Wr ] memory_order
   | Release : [< `Wr ] memory_order
+  | Acq_rel : [< `Rd | `Wr ] memory_order
+  | Acquire : [< `Rd ] memory_order
 
 type 'a t =
   | Atomic_get : [< `Rd ] memory_order * [> `Rd ] Addr.t * ([ `Atomic ], 'a) value -> 'a t
   | Atomic_set : [< `Wr ] memory_order * [> `Wr ] Addr.t * ([ `Atomic ], 'a) value * 'a -> unit t
-  | Fetch_add  : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> unit t
+  | Fetch_add  : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
+  | Fetch_or   : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
+  | Fetch_sub  : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
   | Pause_intrinsic : unit t
   | Compare_exchange : [> `Rd | `Wr ] Addr.t *
-                       ([ `Atomic ], 'a) value * 'a * 'a * bool * [< `Rd | `Wr ] memory_order -> bool t
+                       ([ `Atomic ], 'a) value * 'a ref * 'a * bool * [< `Rd | `Wr ] memory_order
+                       * [< `Rd | `Wr ] memory_order -> bool t
   | Get : [> `Rd ] Addr.t * ('c, 'a) value -> 'a t
   | Allocate : string list * int -> [ `Rd | `Wr ] Addr.t t
   | Delete : _ Addr.t * int -> unit t
@@ -58,3 +63,14 @@ val pp : 'a t fmt
 val find : [ `Rd ] Addr.t -> key -> int t
 val insert : [ `Rd | `Wr ] Addr.t -> key -> int -> unit t
 val ctor : unit -> [ `Rd | `Wr ] Addr.t t
+
+module Ringbuffer : sig
+  type order = private int
+
+  val enqueue : order:order -> non_empty:bool -> [ `Rd | `Wr ] Addr.t -> int -> unit t
+  val dequeue : order:order -> non_empty:bool -> [ `Rd | `Wr ] Addr.t -> int t
+  val peek : order:order -> non_empty:bool -> [ `Rd | `Wr ] Addr.t -> int t
+
+  val order_of_int : int -> order
+  val size_of_order : order -> int
+end
