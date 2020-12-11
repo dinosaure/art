@@ -1291,6 +1291,7 @@ module Ringbuffer = struct
         else return () )
 
   and _enqueue_retry ~order ~non_empty ring tail t_cycle entry e_idx =
+    Log.debug (fun m -> m "enqueue retry") ;
     let n = (1 lsl order) * 2 in
     let t_idx = map tail order n in
     let e_cycle = entry lor (2 * n - 1) in

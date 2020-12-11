@@ -52,20 +52,28 @@ let test_spsc ~(order:Ringbuffer.order) ?(len= Random.int (1 lsl (order :> int))
     let rec go fd acc =
       Unix.fsync fd ;
       let res = rrun ring (Ringbuffer.dequeue ~order ~non_empty:true (Addr.of_int_rdwr 0)) in
-      if res = eoq then List.rev acc else go fd (res :: acc) in
+      Fmt.epr "[%a] dequeue %d.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ()) res ; 
+      if res = eoq
+      then
+        ( Fmt.epr "[%a] done.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ())
+        ; List.rev acc )
+      else go fd (res :: acc) in
     let res = go fd [] in Unix.close fd ; res in
   let fiber1 () =
     let fd, ring = load ~order filename in
     let rec go fd lst = match lst with
       | [] ->
         rrun ring (Ringbuffer.enqueue ~order ~non_empty:false (Addr.of_int_rdwr 0) eoq) ;
-        Unix.fsync fd ; Unix.close fd
+        Unix.fsync fd ;
+        Fmt.epr "[%a] done.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ()) ; Unix.close fd
       | hd :: tl ->
         rrun ring (Ringbuffer.enqueue ~order ~non_empty:false (Addr.of_int_rdwr 0) hd) ;
         Unix.fsync fd ; go fd tl in
-    go fd lst in
+    Unix.fsync fd ; go fd lst in
   let open Fiber in
-  fork_and_join (fun () -> run_process fiber0) (fun () -> run_process fiber1) >>= function
+  fork_and_join (fun () -> run_process fiber0) (fun () -> run_process fiber1) >>= fun ress ->
+  Fmt.epr "Processes done.\n%!" ;
+  match ress with
   | Ok lst', Ok () ->
     if lst = lst'
     then return (R.ok ())
