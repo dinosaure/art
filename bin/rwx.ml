@@ -23,6 +23,9 @@ open Persistent
 
 type memory = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
+let identity x = x
+let empty = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0
+
 external get_page_size
   : unit -> int
   = "caml_getpagesize" [@@noalloc]
@@ -35,8 +38,8 @@ let mmu_of_file filename =
   let len = len * page_size in
   let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
   let memory = Bigarray.array1_of_genarray memory in
-  let mmu = mmu_of_memory memory in
-  Unix.close fd ; mmu 
+  let mmu = mmu_of_memory ~sync:identity () ~ring:empty memory in
+  Unix.close fd ; mmu
 
 let read_eval_print_loop mmu root =
   let rec loop mmu root =
@@ -77,7 +80,7 @@ let create filename len =
   let brk = size_of_word * 2 in
   Logs.debug (fun m -> m "[brk]  set %016x %016x" 0 brk) ;
   atomic_set_leuintnat memory 0 Seq_cst brk ;
-  let mmu = mmu_of_memory memory in
+  let mmu = mmu_of_memory ~sync:identity () ~ring:empty memory in
   let root = run mmu (Rowex.ctor ()) in
   Logs.debug (fun m -> m "[root] set %016x %016x" size_of_word (root :> int)) ;
   atomic_set_leuintnat memory (Sys.word_size / 8) Seq_cst (root :> int) ;

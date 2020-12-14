@@ -1,16 +1,16 @@
 open Rowex
 
-type mmu
 type memory = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
-
-val mmu_of_memory : ?free:(int * int) list -> memory -> mmu
-val memory_of_mmu : mmu -> memory
-val root_of_mmu : mmu -> [ `Rd | `Wr ] Addr.t
-val run : mmu -> 'a t -> 'a
-
 type ring = memory
 
 val rrun : ring -> 'a t -> 'a
+
+type 'fd mmu
+
+val mmu_of_memory : sync:('fd -> unit) -> 'fd -> ring:ring -> memory -> 'fd mmu
+val memory_of_mmu : 'fd mmu -> memory
+val root_of_mmu : 'fd mmu -> [ `Rd | `Wr ] Addr.t
+val run : 'fd mmu -> 'a t -> 'a
 
 (** / **)
 

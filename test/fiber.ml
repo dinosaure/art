@@ -1,3 +1,6 @@
+let src = Logs.Src.create "fiber"
+module Log = (val Logs.src_log src : Logs.LOG)
+
 type 'a t = ('a -> unit) -> unit
 
 let return x k = k x
@@ -65,14 +68,22 @@ let rec parallel_iter l ~f =
 
 let safe_close fd = try Unix.close fd with Unix.Unix_error _ -> ()
 
-let create_process prgn =
-  let out0, out1 = Unix.pipe () in
+let create_process ?file prgn =
+  let out0, out1 = match file with
+    | None -> Unix.pipe ()
+    | Some filename ->
+      let ic = Unix.openfile filename Unix.[ O_RDONLY; O_CREAT; O_TRUNC ] 0o644 in
+      let oc = Unix.openfile filename Unix.[ O_WRONLY; O_CREAT; O_TRUNC ] 0o644 in
+      ic, oc in
   match Unix.fork () with
   | 0 -> (
       Unix.close out0 ;
       let oc = Unix.out_channel_of_descr out1 in
       try
-        Marshal.to_channel oc (prgn ()) [ Marshal.No_sharing ] ;
+        let res = prgn () in
+        Log.debug (fun m -> m "End of the process %d." (Unix.getpid ())) ;
+        Marshal.to_channel oc res [ Marshal.No_sharing ] ;
+        Log.debug (fun m -> m "Result of %d marshalled." (Unix.getpid ())) ;
         flush oc ;
         Unix.close out1 ;
         exit 0
@@ -107,14 +118,15 @@ let restart_throttle () =
     Ivar.fill (Queue.pop waiting_for_slot) ()
   done
 
-let run_process prgn =
+let run_process ?file prgn =
   throttle () >>= fun () ->
-  let fd, pid = create_process prgn in
+  let fd, pid = create_process ?file prgn in
   let ivar = Ivar.create () in
   Hashtbl.add running pid ivar ;
   Ivar.read ivar >>= fun status ->
   let ic = Unix.in_channel_of_descr fd in
   let res = Marshal.from_channel ic in
+  Log.debug (fun m -> m "Result of the process unmarshalled.") ;
   safe_close fd ;
   match status with
   | Unix.WEXITED 0 -> return (Ok res)

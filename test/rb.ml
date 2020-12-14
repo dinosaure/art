@@ -71,7 +71,8 @@ let test_spsc ~(order:Ringbuffer.order) ?(len= Random.int (1 lsl (order :> int))
         Unix.fsync fd ; go fd tl in
     Unix.fsync fd ; go fd lst in
   let open Fiber in
-  fork_and_join (fun () -> run_process fiber0) (fun () -> run_process fiber1) >>= fun ress ->
+  let temp = R.failwith_error_msg (Bos.OS.File.tmp "fiber-%s") in
+  fork_and_join (fun () -> run_process ~file:(Fpath.to_string temp) fiber0) (fun () -> run_process fiber1) >>= fun ress ->
   Fmt.epr "Processes done.\n%!" ;
   match ress with
   | Ok lst', Ok () ->

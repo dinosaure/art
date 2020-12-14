@@ -306,6 +306,7 @@ caml_get_beintnat(value memory, value addr)
 
 #include <caml/alloc.h>
 #include <caml/memory.h>
+#include <stdio.h>
 
 CAMLprim value
 caml_get_c_string(value memory, value addr)
@@ -313,7 +314,7 @@ caml_get_c_string(value memory, value addr)
   CAMLparam2(memory, addr) ;
   CAMLlocal1(res) ;
 
-  uint8_t *v = memory_uint8_off (memory, addr) ;
+  const uint8_t *v = memory_uint8_off (memory, addr) ;
   res = caml_copy_string(v) ;
 
   CAMLreturn(res) ;

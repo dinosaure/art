@@ -22,7 +22,7 @@ val parallel_map : 'a list -> f:('a -> 'b t) -> 'b list t
 
 val parallel_iter : 'a list -> f:('a -> unit t) -> unit t
 
-val run_process : (unit -> 'a) -> ('a, int) result t
+val run_process : ?file:string -> (unit -> 'a) -> ('a, int) result t
 
 val run : 'a t -> 'a
 
