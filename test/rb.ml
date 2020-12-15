@@ -52,10 +52,10 @@ let test_spsc ~(order:Ringbuffer.order) ?(len= Random.int (1 lsl (order :> int))
     let rec go fd acc =
       Unix.fsync fd ;
       let res = rrun ring (Ringbuffer.dequeue ~order ~non_empty:true (Addr.of_int_rdwr 0)) in
-      Fmt.epr "[%a] dequeue %d.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ()) res ; 
+      Logs.debug (fun m -> m "[%a] dequeue %d.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ()) res) ;
       if res = eoq
       then
-        ( Fmt.epr "[%a] done.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ())
+        ( Logs.debug (fun m -> m "[%a] done.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ()))
         ; List.rev acc )
       else go fd (res :: acc) in
     let res = go fd [] in Unix.close fd ; res in
@@ -65,7 +65,7 @@ let test_spsc ~(order:Ringbuffer.order) ?(len= Random.int (1 lsl (order :> int))
       | [] ->
         rrun ring (Ringbuffer.enqueue ~order ~non_empty:false (Addr.of_int_rdwr 0) eoq) ;
         Unix.fsync fd ;
-        Fmt.epr "[%a] done.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ()) ; Unix.close fd
+        Logs.debug (fun m -> m "[%a] done.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ())) ; Unix.close fd
       | hd :: tl ->
         rrun ring (Ringbuffer.enqueue ~order ~non_empty:false (Addr.of_int_rdwr 0) hd) ;
         Unix.fsync fd ; go fd tl in
