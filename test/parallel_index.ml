@@ -148,23 +148,17 @@ let test ~kind dataset filename =
   match kind with
   | `Multiple_consumer_simple_producer ->
     let open Fiber in
-    let ( >>? ) x f = x >>= function
-      | Ok x -> f x
-      | Error err -> return (Error err) in
     let readers () =
-      let f i =
+      let f _ =
         let temp = R.failwith_error_msg (Bos.OS.File.tmp "fiber-%s") in
-        run_process ~file:(Fpath.to_string temp) (fiber1 dataset) >>? fun res ->
-        return (Ok (i, res)) in
-      let join a x = match a, x with
-        | Ok a, Ok x -> Ok (x :: a)
-        | Error _, _ -> a
-        | Ok _, Error err -> Error err in
-      parallel_map ~f (List.init (get_concurrency () - 1) identity) >>| List.fold_left join (Ok []) in
+        run_process ~file:(Fpath.to_string temp) (fiber1 dataset) >>= fun _res ->
+        return () in
+      parallel_iter ~f (List.init (get_concurrency () - 1) identity) >>= fun () ->
+      return (Ok ()) in
     let writer () = run_process fiber0 in
     ( fork_and_join writer readers >>= function
-    | Ok (), Ok hs ->
-      List.iter (fun (uid, h) -> Fmt.pr "[%3d]>>> %d iterations.\n%!" uid (List.length h)) hs ;
+    | Ok (), Ok () ->
+      Fmt.pr ">>> %d reader(s) terminate correctly.\n%!" (get_concurrency () - 1) ;
       return (Ok ())
     | Error exit, _ ->
       return (R.error_msgf "Reader exits with %03d" exit)
@@ -182,7 +176,7 @@ let test ~kind dataset filename =
     | _, Error exit ->
       return (R.error_msgf "Writer exits with %03d" exit) )
 
-let main multiple_readers dataset () =
+let main multiple_readers dataset () () =
   let open Bos in
   OS.File.tmp "index-%s" >>= fun path ->
   Logs.debug (fun m -> m "Index file: %a" Fpath.pp path) ;
@@ -201,6 +195,12 @@ let setup_logs style_renderer level =
 let setup_logs =
   Term.(const setup_logs $ Fmt_cli.style_renderer () $ Logs_cli.level ())
 
+let setup_concurrency v =
+  Fiber.set_concurrency v
+
+let setup_concurrency =
+  Term.(const setup_concurrency $ Arg.(value & opt int (Fiber.get_concurrency ()) & info [ "c"; "concurrency" ]))
+
 let existing_file =
   let parser x = match Fpath.of_string x with
     | Ok _ as v when Sys.file_exists x -> v
@@ -215,7 +215,7 @@ let multiple_readers =
   Arg.(value & flag & info [ "multiple-readers" ])
 
 let main =
-  Term.(term_result (const main $ multiple_readers $ dataset $ setup_logs)),
+  Term.(term_result (const main $ multiple_readers $ dataset $ setup_concurrency $ setup_logs)),
   Term.info "ring"
 
 let () = Term.(exit @@ eval main)
