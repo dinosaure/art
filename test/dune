@@ -79,3 +79,12 @@
   (:dataset small-dataset.txt))
  (action
   (run %{test} --dataset %{dataset})))
+
+(rule
+ (alias runtest)
+ (package rowex)
+ (deps
+  (:test parallel_index.exe)
+  (:dataset small-dataset.txt))
+ (action
+  (run %{test} --multiple-readers --dataset %{dataset})))

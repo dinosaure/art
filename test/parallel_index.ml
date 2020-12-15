@@ -106,7 +106,10 @@ let exists mmu root key =
   | _v -> true
   | exception Not_found -> false
 
-let test_spsc dataset filename =
+type kind = [ `Simple_consumer_simple_producer
+            | `Multiple_consumer_simple_producer ]
+
+let test ~kind dataset filename =
   let ring_filename = Fpath.add_ext "ring" filename in
   RB.create ring_filename ;
   Index.create filename ;
@@ -142,22 +145,51 @@ let test_spsc dataset filename =
       | exception End_of_file ->
         close_in ic ; Array.of_list (List.rev acc) in
     go (open_in (Fpath.to_string dataset)) [] in
-  let open Fiber in
-  let temp = R.failwith_error_msg (Bos.OS.File.tmp "fiber-%s") in
-  fork_and_join (fun () -> run_process fiber0) (fun () -> run_process ~file:(Fpath.to_string temp) (fiber1 dataset)) >>= function
-  | Ok (), Ok histogram ->
-    Fmt.pr ">>> %d iteration(s).\n%!" (List.length histogram) ;
-    return (Ok ())
-  | Error exit, _ ->
-    return (R.error_msgf "Reader exits with %03d" exit)
-  | _, Error exit ->
-    return (R.error_msgf "Writer exits with %03d" exit)
+  match kind with
+  | `Multiple_consumer_simple_producer ->
+    let open Fiber in
+    let ( >>? ) x f = x >>= function
+      | Ok x -> f x
+      | Error err -> return (Error err) in
+    let readers () =
+      let f i =
+        let temp = R.failwith_error_msg (Bos.OS.File.tmp "fiber-%s") in
+        run_process ~file:(Fpath.to_string temp) (fiber1 dataset) >>? fun res ->
+        return (Ok (i, res)) in
+      let join a x = match a, x with
+        | Ok a, Ok x -> Ok (x :: a)
+        | Error _, _ -> a
+        | Ok _, Error err -> Error err in
+      parallel_map ~f (List.init (get_concurrency () - 1) identity) >>| List.fold_left join (Ok []) in
+    let writer () = run_process fiber0 in
+    ( fork_and_join writer readers >>= function
+    | Ok (), Ok hs ->
+      List.iter (fun (uid, h) -> Fmt.pr "[%3d]>>> %d iterations.\n%!" uid (List.length h)) hs ;
+      return (Ok ())
+    | Error exit, _ ->
+      return (R.error_msgf "Reader exits with %03d" exit)
+    | _, Error exit ->
+      return (R.error_msgf "Writer exits with %03d" exit) )
+  | `Simple_consumer_simple_producer ->
+    let open Fiber in
+    let temp = R.failwith_error_msg (Bos.OS.File.tmp "fiber-%s") in
+    ( fork_and_join (fun () -> run_process fiber0) (fun () -> run_process ~file:(Fpath.to_string temp) (fiber1 dataset)) >>= function
+    | Ok (), Ok histogram ->
+      Fmt.pr ">>> %d iteration(s).\n%!" (List.length histogram) ;
+      return (Ok ())
+    | Error exit, _ ->
+      return (R.error_msgf "Reader exits with %03d" exit)
+    | _, Error exit ->
+      return (R.error_msgf "Writer exits with %03d" exit) )
 
-let main dataset () =
+let main multiple_readers dataset () =
   let open Bos in
   OS.File.tmp "index-%s" >>= fun path ->
   Logs.debug (fun m -> m "Index file: %a" Fpath.pp path) ;
-  Fiber.run (test_spsc dataset path)
+  let kind = match multiple_readers with
+    | true  -> `Multiple_consumer_simple_producer
+    | false -> `Simple_consumer_simple_producer in
+  Fiber.run (test ~kind dataset path)
 
 open Cmdliner
 
@@ -179,8 +211,11 @@ let existing_file =
 let dataset =
   Arg.(required & opt (some existing_file) None & info [ "dataset" ])
 
+let multiple_readers =
+  Arg.(value & flag & info [ "multiple-readers" ])
+
 let main =
-  Term.(term_result (const main $ dataset $ setup_logs)),
+  Term.(term_result (const main $ multiple_readers $ dataset $ setup_logs)),
   Term.info "ring"
 
 let () = Term.(exit @@ eval main)
