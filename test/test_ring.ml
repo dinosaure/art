@@ -25,11 +25,11 @@ let run order len =
   let log = Unix.openfile filename Unix.[ O_RDWR; O_CREAT; O_TRUNC ] 0o644 in
   let pid =
     Unix.create_process_env "./rb.exe"
-      [| "./rb.exe"; string_of_int order; string_of_int len |]
+      [| "./rb.exe"; "--tmp=./tmp"; string_of_int order; string_of_int len |]
       [||] Unix.stdin Unix.stdout log in
   let _, status = Unix.waitpid [] pid in
   Unix.close log ; res := !res && properly_exited status ;
-  Format.printf ">>> ./rb.exe %d %d: %a.\n%!" order len pp_process_status status ;
+  Format.printf ">>> ./rb.exe --tmp=./tmp %d %d: %a.\n%!" order len pp_process_status status ;
   if not (properly_exited status)
   then show filename
 

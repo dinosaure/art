@@ -12,13 +12,18 @@
 (library
  (name fiber)
  (modules fiber)
- (libraries logs unix))
+ (libraries fmt logs unix))
+
+(library
+ (name tmp)
+ (modules tmp)
+ (libraries rresult fmt fpath unix))
 
 (executable
  (name rb)
  (modules rb)
  (libraries cmdliner bos rresult fmt.tty fmt.cli logs.fmt logs.cli fmt mmap
-   fiber base64 rowex rowex.persistent unix))
+   tmp fiber base64 rowex rowex.persistent unix))
 
 (executable
  (name test_ring)
@@ -34,7 +39,7 @@
  (name parallel_index)
  (modules parallel_index)
  (libraries cmdliner bos rresult fmt.tty fmt.cli logs.fmt logs.cli fmt mmap
-   fiber rowex rowex.persistent unix))
+   tmp fiber rowex rowex.persistent unix))
 
 ; tests
 
@@ -78,7 +83,7 @@
   (:test parallel_index.exe)
   (:dataset small-dataset.txt))
  (action
-  (run %{test} --dataset %{dataset})))
+  (run %{test} --tmp=./tmp --dataset %{dataset})))
 
 (rule
  (alias runtest)
@@ -87,4 +92,4 @@
   (:test parallel_index.exe)
   (:dataset small-dataset.txt))
  (action
-  (run %{test} --multiple-readers --dataset %{dataset})))
+  (run %{test} --tmp=./tmp --multiple-readers --dataset %{dataset})))

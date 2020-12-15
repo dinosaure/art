@@ -66,12 +66,13 @@ let rec parallel_iter l ~f =
       fork (fun () -> f x) >>= fun future ->
       parallel_iter l ~f >>= fun () -> Future.wait future
 
-let safe_close fd = try Unix.close fd with Unix.Unix_error _ -> ()
+let safe_close fd = try Unix.close fd with _exn -> ()
 
 let create_process ?file prgn =
   let out0, out1 = match file with
     | None -> Unix.pipe ()
     | Some filename ->
+      Log.debug (fun m -> m "Save result of children into %s." filename) ;
       let ic = Unix.openfile filename Unix.[ O_RDONLY; O_CREAT; O_TRUNC ] 0o644 in
       let oc = Unix.openfile filename Unix.[ O_WRONLY; O_CREAT; O_TRUNC ] 0o644 in
       ic, oc in
@@ -84,10 +85,11 @@ let create_process ?file prgn =
         Log.debug (fun m -> m "End of the process %d." (Unix.getpid ())) ;
         Marshal.to_channel oc res [ Marshal.No_sharing ] ;
         Log.debug (fun m -> m "Result of %d marshalled." (Unix.getpid ())) ;
-        flush oc ;
-        Unix.close out1 ;
+        flush oc ; close_out oc ;
         exit 0
-      with _ -> exit 127)
+      with exn ->
+        Log.err (fun m -> m "Got an error: %S" (Printexc.to_string exn)) ;
+        exit 127)
   | pid ->
       Unix.close out1 ;
       (out0, pid)
@@ -136,13 +138,17 @@ let run_process ?file prgn =
   Hashtbl.add running pid ivar ;
   Ivar.read ivar >>= fun status ->
   let ic = Unix.in_channel_of_descr fd in
-  let res = Marshal.from_channel ic in
-  Log.debug (fun m -> m "Result of the process unmarshalled.") ;
-  safe_close fd ;
   match status with
-  | Unix.WEXITED 0 -> return (Ok res)
-  | Unix.WEXITED n -> return (Error n)
-  | Unix.WSIGNALED _ -> return (Error 255)
+  | Unix.WEXITED 0 ->
+    let res = Marshal.from_channel ic in
+    safe_close fd ;
+    return (Ok res)
+  | Unix.WEXITED n ->
+    safe_close fd ;
+    return (Error n)
+  | Unix.WSIGNALED _ ->
+    safe_close fd ;
+    return (Error 255)
   | Unix.WSTOPPED _ -> assert false
 
 let run fiber =

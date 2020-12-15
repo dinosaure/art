@@ -150,7 +150,7 @@ let test ~kind dataset filename =
     let open Fiber in
     let readers () =
       let f _ =
-        let temp = R.failwith_error_msg (Bos.OS.File.tmp "fiber-%s") in
+        let temp = R.failwith_error_msg (Tmp.tmp "fiber-%s") in
         run_process ~file:(Fpath.to_string temp) (fiber1 dataset) >>= fun _res ->
         return () in
       parallel_iter ~f (List.init (get_concurrency () - 1) identity) >>= fun () ->
@@ -166,7 +166,7 @@ let test ~kind dataset filename =
       return (R.error_msgf "Writer exits with %03d" exit) )
   | `Simple_consumer_simple_producer ->
     let open Fiber in
-    let temp = R.failwith_error_msg (Bos.OS.File.tmp "fiber-%s") in
+    let temp = R.failwith_error_msg (Tmp.tmp "fiber-%s") in
     ( fork_and_join (fun () -> run_process fiber0) (fun () -> run_process ~file:(Fpath.to_string temp) (fiber1 dataset)) >>= function
     | Ok (), Ok histogram ->
       Fmt.pr ">>> %d iteration(s).\n%!" (List.length histogram) ;
@@ -176,9 +176,8 @@ let test ~kind dataset filename =
     | _, Error exit ->
       return (R.error_msgf "Writer exits with %03d" exit) )
 
-let main multiple_readers dataset () () =
-  let open Bos in
-  OS.File.tmp "index-%s" >>= fun path ->
+let main multiple_readers dataset () () () =
+  Tmp.tmp "index-%s" >>= fun path ->
   Logs.debug (fun m -> m "Index file: %a" Fpath.pp path) ;
   let kind = match multiple_readers with
     | true  -> `Multiple_consumer_simple_producer
@@ -201,6 +200,17 @@ let setup_concurrency v =
 let setup_concurrency =
   Term.(const setup_concurrency $ Arg.(value & opt int (Fiber.get_concurrency ()) & info [ "c"; "concurrency" ]))
 
+let setup_tmp = function
+  | Some path ->
+    let _ = R.failwith_error_msg (Bos.OS.Dir.create ~path:true path) in
+    Tmp.set_default_dir path
+  | None -> ()
+
+let fpath = Arg.conv (Fpath.of_string, Fpath.pp)
+
+let setup_tmp =
+  Term.(const setup_tmp $ Arg.(value & opt (some fpath) None & info [ "tmp" ]))
+
 let existing_file =
   let parser x = match Fpath.of_string x with
     | Ok _ as v when Sys.file_exists x -> v
@@ -215,7 +225,7 @@ let multiple_readers =
   Arg.(value & flag & info [ "multiple-readers" ])
 
 let main =
-  Term.(term_result (const main $ multiple_readers $ dataset $ setup_concurrency $ setup_logs)),
+  Term.(term_result (const main $ multiple_readers $ dataset $ setup_concurrency $ setup_tmp $ setup_logs)),
   Term.info "ring"
 
 let () = Term.(exit @@ eval main)
