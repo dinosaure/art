@@ -92,7 +92,18 @@ let create_process ?file prgn =
       Unix.close out1 ;
       (out0, pid)
 
-let concurrency = ref 4
+let get_concurrency () =
+  try
+    let ic = Unix.open_process_in "getconf _NPROCESSORS_ONLN" in
+    let close () = ignore (Unix.close_process_in ic) in
+    let sc = Scanf.Scanning.from_channel ic in
+    try Scanf.bscanf sc "%d" (fun n -> close () ; n)
+    with exn -> close () ; raise exn
+  with
+  | Not_found | Sys_error _ | Failure _ | Scanf.Scan_failure _
+  | End_of_file | Unix.Unix_error (_, _, _) -> 1
+
+let concurrency = ref (get_concurrency ())
 
 let running = Hashtbl.create ~random:false !concurrency
 
