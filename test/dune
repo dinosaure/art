@@ -6,13 +6,24 @@
 (executable
  (name persistent)
  (modules persistent)
- (libraries mmap base64 rowex rowex.persistent unix alcotest bos))
+ (libraries fmt.tty logs.fmt mmap base64 rowex rowex.persistent unix alcotest
+   bos))
+
+(library
+ (name fiber)
+ (modules fiber)
+ (libraries fmt logs unix))
+
+(library
+ (name tmp)
+ (modules tmp)
+ (libraries rresult fmt fpath unix))
 
 (executable
  (name rb)
- (modules rb fiber)
+ (modules rb)
  (libraries cmdliner bos rresult fmt.tty fmt.cli logs.fmt logs.cli fmt mmap
-   base64 rowex rowex.persistent unix))
+   tmp fiber base64 rowex rowex.persistent unix))
 
 (executable
  (name test_ring)
@@ -23,6 +34,14 @@
  (name ring)
  (modules ring)
  (libraries mmap base64 rowex rowex.persistent unix alcotest bos))
+
+(executable
+ (name parallel_index)
+ (modules parallel_index)
+ (libraries cmdliner bos rresult fmt.tty fmt.cli logs.fmt logs.cli fmt mmap
+   tmp fiber rowex rowex.persistent unix))
+
+; tests
 
 (rule
  (alias runtest)
@@ -56,3 +75,21 @@
   (:test ring.exe))
  (action
   (run %{test} --color=always)))
+
+(rule
+ (alias runtest)
+ (package rowex)
+ (deps
+  (:test parallel_index.exe)
+  (:dataset small-dataset.txt))
+ (action
+  (run %{test} --tmp=./tmp --dataset %{dataset})))
+
+(rule
+ (alias runtest)
+ (package rowex)
+ (deps
+  (:test parallel_index.exe)
+  (:dataset small-dataset.txt))
+ (action
+  (run %{test} --tmp=./tmp --multiple-readers --dataset %{dataset})))

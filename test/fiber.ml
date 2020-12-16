@@ -1,3 +1,6 @@
+let src = Logs.Src.create "fiber"
+module Log = (val Logs.src_log src : Logs.LOG)
+
 type 'a t = ('a -> unit) -> unit
 
 let return x k = k x
@@ -63,25 +66,46 @@ let rec parallel_iter l ~f =
       fork (fun () -> f x) >>= fun future ->
       parallel_iter l ~f >>= fun () -> Future.wait future
 
-let safe_close fd = try Unix.close fd with Unix.Unix_error _ -> ()
+let safe_close fd = try Unix.close fd with _exn -> ()
 
-let create_process prgn =
-  let out0, out1 = Unix.pipe () in
+let create_process ?file prgn =
+  let out0, out1 = match file with
+    | None -> Unix.pipe ()
+    | Some filename ->
+      Log.debug (fun m -> m "Save result of children into %s." filename) ;
+      let ic = Unix.openfile filename Unix.[ O_RDONLY; O_CREAT; O_TRUNC ] 0o644 in
+      let oc = Unix.openfile filename Unix.[ O_WRONLY; O_CREAT; O_TRUNC ] 0o644 in
+      ic, oc in
   match Unix.fork () with
   | 0 -> (
       Unix.close out0 ;
       let oc = Unix.out_channel_of_descr out1 in
       try
-        Marshal.to_channel oc (prgn ()) [ Marshal.No_sharing ] ;
-        flush oc ;
-        Unix.close out1 ;
+        let res = prgn () in
+        Log.debug (fun m -> m "End of the process %d." (Unix.getpid ())) ;
+        Marshal.to_channel oc res [ Marshal.No_sharing ] ;
+        Log.debug (fun m -> m "Result of %d marshalled." (Unix.getpid ())) ;
+        flush oc ; close_out oc ;
         exit 0
-      with _ -> exit 127)
+      with exn ->
+        Log.err (fun m -> m "Got an error: %S" (Printexc.to_string exn)) ;
+        exit 127)
   | pid ->
       Unix.close out1 ;
       (out0, pid)
 
-let concurrency = ref 4
+let get_concurrency () =
+  try
+    let ic = Unix.open_process_in "getconf _NPROCESSORS_ONLN" in
+    let close () = ignore (Unix.close_process_in ic) in
+    let sc = Scanf.Scanning.from_channel ic in
+    try Scanf.bscanf sc "%d" (fun n -> close () ; n)
+    with exn -> close () ; raise exn
+  with
+  | Not_found | Sys_error _ | Failure _ | Scanf.Scan_failure _
+  | End_of_file | Unix.Unix_error (_, _, _) -> 1
+
+let concurrency = ref (get_concurrency ())
 
 let running = Hashtbl.create ~random:false !concurrency
 
@@ -107,19 +131,24 @@ let restart_throttle () =
     Ivar.fill (Queue.pop waiting_for_slot) ()
   done
 
-let run_process prgn =
+let run_process ?file prgn =
   throttle () >>= fun () ->
-  let fd, pid = create_process prgn in
+  let fd, pid = create_process ?file prgn in
   let ivar = Ivar.create () in
   Hashtbl.add running pid ivar ;
   Ivar.read ivar >>= fun status ->
   let ic = Unix.in_channel_of_descr fd in
-  let res = Marshal.from_channel ic in
-  safe_close fd ;
   match status with
-  | Unix.WEXITED 0 -> return (Ok res)
-  | Unix.WEXITED n -> return (Error n)
-  | Unix.WSIGNALED _ -> return (Error 255)
+  | Unix.WEXITED 0 ->
+    let res = Marshal.from_channel ic in
+    safe_close fd ;
+    return (Ok res)
+  | Unix.WEXITED n ->
+    safe_close fd ;
+    return (Error n)
+  | Unix.WSIGNALED _ ->
+    safe_close fd ;
+    return (Error 255)
   | Unix.WSTOPPED _ -> assert false
 
 let run fiber =

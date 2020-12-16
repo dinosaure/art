@@ -52,10 +52,10 @@ let test_spsc ~(order:Ringbuffer.order) ?(len= Random.int (1 lsl (order :> int))
     let rec go fd acc =
       Unix.fsync fd ;
       let res = rrun ring (Ringbuffer.dequeue ~order ~non_empty:true (Addr.of_int_rdwr 0)) in
-      Fmt.epr "[%a] dequeue %d.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ()) res ; 
+      Logs.debug (fun m -> m "[%a] dequeue %d.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ()) res) ;
       if res = eoq
       then
-        ( Fmt.epr "[%a] done.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ())
+        ( Logs.debug (fun m -> m "[%a] done.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ()))
         ; List.rev acc )
       else go fd (res :: acc) in
     let res = go fd [] in Unix.close fd ; res in
@@ -65,13 +65,14 @@ let test_spsc ~(order:Ringbuffer.order) ?(len= Random.int (1 lsl (order :> int))
       | [] ->
         rrun ring (Ringbuffer.enqueue ~order ~non_empty:false (Addr.of_int_rdwr 0) eoq) ;
         Unix.fsync fd ;
-        Fmt.epr "[%a] done.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ()) ; Unix.close fd
+        Logs.debug (fun m -> m "[%a] done.\n%!" Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ())) ; Unix.close fd
       | hd :: tl ->
         rrun ring (Ringbuffer.enqueue ~order ~non_empty:false (Addr.of_int_rdwr 0) hd) ;
         Unix.fsync fd ; go fd tl in
     Unix.fsync fd ; go fd lst in
   let open Fiber in
-  fork_and_join (fun () -> run_process fiber0) (fun () -> run_process fiber1) >>= fun ress ->
+  let temp = R.failwith_error_msg (Tmp.tmp "fiber-%s") in
+  fork_and_join (fun () -> run_process ~file:(Fpath.to_string temp) fiber0) (fun () -> run_process fiber1) >>= fun ress ->
   Fmt.epr "Processes done.\n%!" ;
   match ress with
   | Ok lst', Ok () ->
@@ -86,9 +87,8 @@ let test_spsc ~(order:Ringbuffer.order) ?(len= Random.int (1 lsl (order :> int))
   | _, Error exit ->
     return (R.error_msgf "Writer exits with %03d" exit)
 
-let main order len () () =
-  let open Bos in
-  OS.File.tmp "ring-%s" >>= fun path ->
+let main order len () () () =
+  Tmp.tmp "ring-%s" >>= fun path ->
   Logs.debug (fun m -> m "Ring file: %a" Fpath.pp path) ;
   create ~order (Fpath.to_string path) ;
   Fiber.run (test_spsc ~order ?len (Fpath.to_string path))
@@ -129,6 +129,17 @@ let predictable ?env () =
 let setup_random =
   Term.(const setup_random $ predictable ())
 
+let setup_tmp = function
+  | Some path ->
+    let _ = R.failwith_error_msg (Bos.OS.Dir.create ~path:true path) in
+    Tmp.set_default_dir path
+  | None -> ()
+
+let fpath = Arg.conv (Fpath.of_string, Fpath.pp)
+
+let setup_tmp =
+  Term.(const setup_tmp $ Arg.(value & opt (some fpath) None & info [ "tmp" ]))
+
 let order =
   let parser x = match int_of_string x with
     | x -> Ok (Ringbuffer.order_of_int x)
@@ -140,7 +151,7 @@ let order = Arg.(required & pos 0 (some order) None & info [])
 let length = Arg.(value & pos 1 (some int) None & info [])
 
 let main =
-  Term.(term_result (const main $ order $ length $ setup_random $ setup_logs)),
+  Term.(term_result (const main $ order $ length $ setup_random $ setup_tmp $ setup_logs)),
   Term.info "ring"
 
 let () = Term.(exit @@ eval main)

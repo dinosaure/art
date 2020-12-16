@@ -50,9 +50,9 @@ type 'a t =
                        ([ `Atomic ], 'a) value * 'a ref * 'a * bool * [< `Rd | `Wr ] memory_order
                        * [< `Rd | `Wr ] memory_order -> bool t
   | Get : [> `Rd ] Addr.t * ('c, 'a) value -> 'a t
-  | Allocate : string list * int -> [ `Rd | `Wr ] Addr.t t
+  | Allocate : [ `Node | `Leaf ] * string list * int -> [ `Rd | `Wr ] Addr.t t
   | Delete : _ Addr.t * int -> unit t
-  | Collect : _ Addr.t * int -> unit t
+  | Collect : _ Addr.t * int * int -> unit t
   | Bind : 'a t * ('a -> 'b t) -> 'b t
   | Return : 'a -> 'a t
 
@@ -70,7 +70,13 @@ module Ringbuffer : sig
   val enqueue : order:order -> non_empty:bool -> [ `Rd | `Wr ] Addr.t -> int -> unit t
   val dequeue : order:order -> non_empty:bool -> [ `Rd | `Wr ] Addr.t -> int t
   val peek : order:order -> non_empty:bool -> [ `Rd | `Wr ] Addr.t -> int t
+  val is_empty : [ `Rd | `Wr ] Addr.t -> bool t
 
+  val order : order
   val order_of_int : int -> order
   val size_of_order : order -> int
 end
+
+(** / **)
+
+val _header_owner : int
