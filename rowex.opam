@@ -1,32 +1,31 @@
 opam-version: "2.0"
-name:         "rowex"
-maintainer:   "Romain Calascibetta <romain.calascibetta@gmail.com>"
-authors:      "Romain Calascibetta <romain.calascibetta@gmail.com>"
-homepage:     "https://github.com/dinosaure/art"
-bug-reports:  "https://github.com/dinosaure/art/issues"
-dev-repo:     "git+https://github.com/dinosaure/art.git"
-doc:          "https://dinosaure.github.io/art/"
-license:      "MIT"
-synopsis:     "Adaptive Radix Tree Synchronized"
-
-build: [ "dune" "build" "-p" name "-j" jobs ]
-run-test: [ "dune" "runtest" "-p" name "-j" jobs ]
-
+name: "rowex"
+synopsis: "Adaptive Radix Tree Synchronized"
+maintainer: "Romain Calascibetta <romain.calascibetta@gmail.com>"
+authors: "Romain Calascibetta <romain.calascibetta@gmail.com>"
+license: "MIT"
+homepage: "https://github.com/dinosaure/art"
+doc: "https://dinosaure.github.io/art/"
+bug-reports: "https://github.com/dinosaure/art/issues"
 depends: [
-  "ocaml"       {>= "4.08.0"}
-  "dune"        {>= "2.0.0"}
+  "ocaml" {>= "4.08.0"}
+  "dune" {>= "2.0.0"}
   "dune-configurator"
   "base-bytes"
-  "fmt"         {>= "0.8.7"}
-  "alcotest"    {with-test}
-  "base-unix"   {with-test}
-  "mmap"        {with-test}
-  "base64"      {with-test}
-  "bos"         {with-test}
-  "cmdliner"    {with-test}
+  "fmt" {>= "0.8.7" & with-test}
+  "alcotest" {with-test}
+  "base-unix" {with-test}
+  "mmap" {with-test}
+  "base64" {with-test}
+  "bos" {with-test}
+  "cmdliner" {with-test}
+  "logs" {>= "0.7.0"}
+  "fpath" {>= "0.7.3" & with-test}
+  "ocamlfind" {>= "1.8.1" & with-test}
+  "rresult" {>= "0.6.0" & with-test}
 ]
-
-available: [ arch != "ppc64"
-           & arch != "arm32"
-	   & arch != "arm64"
-	   & arch != "x86_32" ]
+available:
+  arch != "ppc64" & arch != "arm32" & arch != "arm64" & arch != "x86_32"
+build: ["dune" "build" "-p" name "-j" jobs]
+run-test: ["dune" "runtest" "-p" name "-j" jobs]
+dev-repo: "git+https://github.com/dinosaure/art.git"
