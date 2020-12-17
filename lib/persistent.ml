@@ -206,7 +206,7 @@ let collect ({ ringbuffer= fd, memory; _ } as mmu) =
   let rec mark_and_sweep fd memory =
     mmu.sync fd ;
     let res = rrun memory Ringbuffer.(dequeue ~order:order ~non_empty:false zero) in
-    if res = lnot 0 || res = 0 (* FIXME *) then ()
+    if res = lnot 0 then ()
     else if Hashset.mem mmu.readers res
     then ( Hashset.remove mmu.readers res
          ; free_cells mmu res
