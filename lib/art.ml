@@ -52,9 +52,7 @@ let key : string -> key = fun key ->
 
 external unsafe_key : string -> key = "%identity"
 
-type 'a t =
-  { tree : 'a elt ref
-  ; null : 'a elt ref }
+type 'a t = 'a elt ref
 
 let[@coverage off] pp_char ppf = function
   | '\x21' .. '\x7e' as chr -> Fmt.char ppf chr
@@ -113,7 +111,7 @@ let[@coverage off] rec pp_elt pp_value ppf = function
     Fmt.pf ppf "{:node @[<hov>hdr= @[<hov>%a@];@ children= @[<hov>%a@];@] }"
       pp_header header Fmt.(Dump.array (pp_elt pp_value)) children
 
-let[@coverage off] pp pp_value ppf { tree; _ } = pp_elt pp_value ppf !tree
+let[@coverage off] pp pp_value ppf tree = pp_elt pp_value ppf !tree
 
 external ctz : int -> int = "caml_ctz" [@@noalloc]
 
@@ -369,14 +367,14 @@ let rec _find ~key ~key_len depth = function
 
 let find tree key =
   let key_len = String.length key in
-  _find ~key ~key_len 0 !(tree.tree)
+  _find ~key ~key_len 0 !tree
 
 let find_opt tree key =
   match find tree key with
   | v -> Some v
   | exception Not_found -> None
 
-let rec insert ({ tree; _ } as v) elt key_a len_a value_a depth = match elt with
+let rec insert tree elt key_a len_a value_a depth = match elt with
   | Node { header= Header { kind= NULL; _ }; _ } ->
     tree := (Leaf { key= key_a; value= value_a; })
   | Node ({ header= Header record; children; } as node) ->
@@ -393,9 +391,9 @@ let rec insert ({ tree; _ } as v) elt key_a len_a value_a depth = match elt with
       | -1, N16  -> add_child_n16  record tree children chr leaf
       | -1, N4   -> add_child_n4   record tree children chr leaf
       | idx, _ ->
-        let v = { v with tree= ref (Array.unsafe_get children (idx)) } in
-        insert v (Array.unsafe_get children idx) key_a len_a value_a (depth + plen + 1) ;
-        Array.unsafe_set children idx !(v.tree)
+        let cur = ref (Array.unsafe_get children (idx)) in
+        insert cur (Array.unsafe_get children idx) key_a len_a value_a (depth + plen + 1) ;
+        Array.unsafe_set children idx !cur
     else
       ( let node4 = n4 () in
         let children' = Array.make 4 empty_elt in
@@ -430,15 +428,13 @@ let rec insert ({ tree; _ } as v) elt key_a len_a value_a depth = match elt with
 ;;
 
 let insert tree key value =
-  insert tree !(tree.tree) key (String.length key) value 0
+  insert tree !tree key (String.length key) value 0
 
-let minimum { tree; _ } =
+let minimum tree =
   let { value; key; } = minimum !tree in
   key, value
 
-let make () =
-  { tree= ref empty_elt
-  ; null= ref empty_elt }
+let make () = ref empty_elt
 
 let remove_child_n256
   : n256 record -> 'a elt ref -> 'a elt array -> char -> unit
@@ -535,7 +531,7 @@ let remove_child
 
 let rec remove
   : 'a elt -> 'a t -> string -> int -> int -> unit
-  = fun elt ({ tree; _ } as v) key key_len depth -> match elt with
+  = fun elt tree key key_len depth -> match elt with
     | Node ({ header= Header header; children; } as node) ->
       let plen = header.prefix_length in
       let depth =
@@ -552,11 +548,12 @@ let rec remove
         | Leaf leaf ->
           leaf_matches leaf ~off:depth key key_len ; remove_child node tree key.![depth] x
         | Node _ as child ->
-          let v = { v with tree= ref child } in
-          remove child v key key_len (succ depth) )
+          let cur = ref child in
+          remove child cur key key_len (succ depth)
+        ; children.(x) <- !cur )
     | Leaf leaf ->
       leaf_matches leaf ~off:depth key key_len ; tree := empty_elt
 
 let remove tree key =
-  if !(tree.tree) == empty_elt then raise Not_found ;
-  remove !(tree.tree) tree key (String.length key) 0
+  if !tree == empty_elt then raise Not_found ;
+  remove !tree tree key (String.length key) 0
