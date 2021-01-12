@@ -489,6 +489,7 @@ let remove_child_n16
     then ( let node4 = n4 () in
            let children' = Array.make 4 empty_elt in
            Bytes.unsafe_blit record.keys 0 node4.keys 0 3
+         ; Array.blit children 0 children' 0 3
          ; copy_header ~src:record ~dst:node4
          ; tree := Node { header= Header node4; children= children' } )
 
@@ -509,17 +510,18 @@ let remove_child_n4
     then
       match children.(0) with
       | Leaf _ -> tree := children.(0)
-      | Node { header= Header ({ prefix_length; _ } as hdr); _ } ->
-        let prefix_length = ref prefix_length in
-        if !prefix_length < 10
-        then ( Bytes.unsafe_set record.prefix !prefix_length (unsafe_get_key record 0)
-             ; incr prefix_length ) ;
-        if !prefix_length < 10
-        then ( let sub = min hdr.prefix_length (10 - !prefix_length) in
-               Bytes.blit hdr.prefix 0 record.prefix !prefix_length sub ;
-               prefix_length := !prefix_length + sub ) ;
-        Bytes.blit record.prefix 0 hdr.prefix 0 (min !prefix_length 10) ;
-        hdr.prefix_length <- hdr.prefix_length + 1
+      | Node { header= Header ({ prefix_length; _ } as hdr); _ } as child ->
+        let prefix = ref record.prefix_length in
+        if !prefix < 10
+        then ( Bytes.unsafe_set record.prefix !prefix (unsafe_get_key record 0)
+             ; incr prefix ) ;
+        if !prefix < 10
+        then ( let sub = min prefix_length (10 - !prefix) in
+               Bytes.blit hdr.prefix 0 record.prefix !prefix sub ;
+               prefix := !prefix + sub ) ;
+        Bytes.blit record.prefix 0 hdr.prefix 0 (min !prefix 10) ;
+        hdr.prefix_length <- hdr.prefix_length + record.prefix_length + 1 ;
+        tree := child
 
 let remove_child
   : 'a node -> 'a elt ref -> char -> int -> unit

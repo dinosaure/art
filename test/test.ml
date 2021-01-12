@@ -335,6 +335,60 @@ let test24 =
   Alcotest.check_raises "find" Not_found (fun () -> ignore (Art.find tree (Art.key "foobar"))) ;
 ;;
 
+let test25 =
+  Alcotest.test_case "test25" `Quick @@ fun () ->
+  let tree = Art.make () in
+  Art.insert tree (Art.key "foo") 0 ;
+  Art.insert tree (Art.key "foobar") 1 ;
+  Art.insert tree (Art.key "foobar!") 2 ;
+  Alcotest.(check int) "find" (Art.find tree (Art.key "foo")) 0 ;
+  Alcotest.(check int) "find" (Art.find tree (Art.key "foobar")) 1 ;
+  Alcotest.(check int) "find" (Art.find tree (Art.key "foobar!")) 2 ;
+  Art.remove tree (Art.key "foo") ;
+  Alcotest.(check int) "find" (Art.find tree (Art.key "foobar")) 1 ;
+  Alcotest.(check int) "find" (Art.find tree (Art.key "foobar!")) 2 ;
+  Alcotest.check_raises "find" Not_found (fun () -> ignore (Art.find tree (Art.key "foo"))) ;
+;;
+
+let test26 =
+  Alcotest.test_case "test26" `Quick @@ fun () ->
+  let tree = Art.make () in
+  for i = 0 to 4 do Art.insert tree (Art.key (String.make 1 (Char.chr (i + 48)))) () done ;
+  Alcotest.(check unit) "find" (Art.find tree (Art.key "0")) () ;
+  Alcotest.(check unit) "find" (Art.find tree (Art.key "1")) () ;
+  Alcotest.(check unit) "find" (Art.find tree (Art.key "2")) () ;
+  Alcotest.(check unit) "find" (Art.find tree (Art.key "3")) () ;
+  Alcotest.(check unit) "find" (Art.find tree (Art.key "4")) () ;
+  Art.remove tree (Art.key "4") ;
+  Art.remove tree (Art.key "3") ;
+  Alcotest.(check unit) "find" (Art.find tree (Art.key "0")) () ;
+  Alcotest.(check unit) "find" (Art.find tree (Art.key "1")) () ;
+  Alcotest.(check unit) "find" (Art.find tree (Art.key "2")) () ;
+  Alcotest.check_raises "find" Not_found (fun () -> ignore (Art.find tree (Art.key "4"))) ;
+  Alcotest.check_raises "find" Not_found (fun () -> ignore (Art.find tree (Art.key "3"))) ;
+;;
+
+let test27 =
+  Alcotest.test_case "test27" `Quick @@ fun () ->
+  let tree = Art.make () in
+  for i = 0 to 17 do Art.insert tree (Art.key (String.make 1 (Char.chr (i + 65)))) () done ;
+  Alcotest.(check pass) "remove" (Art.remove tree (Art.key "A")) () ;
+  Alcotest.(check pass) "remove" (Art.remove tree (Art.key "B")) () ;
+  Alcotest.(check pass) "remove" (Art.remove tree (Art.key "C")) () ;
+  Alcotest.(check pass) "remove" (Art.remove tree (Art.key "D")) () ;
+  Alcotest.(check pass) "remove" (Art.remove tree (Art.key "E")) () ;
+  Alcotest.(check pass) "remove" (Art.remove tree (Art.key "F")) () ;
+;;
+
+let test28 =
+  Alcotest.test_case "test28" `Quick @@ fun () ->
+  let tree = Art.make () in
+  for i = 1 to 50 do Art.insert tree (Art.key (String.make 1 (Char.chr i))) () done ;
+  for i = 1 to 38 do
+    Alcotest.(check pass) "remove" (Art.remove tree (Art.key (String.make 1 (Char.chr i)))) ()
+  done ;
+;;
+
 let () =
   Alcotest.run "art"
     [ "art", [ test01
@@ -360,4 +414,8 @@ let () =
     ; "remove", [ test21
                 ; test22
                 ; test23
-                ; test24 ] ]
+                ; test24
+                ; test25
+                ; test26
+                ; test27
+                ; test28 ] ]
