@@ -440,9 +440,7 @@ let make () =
   { tree= ref empty_elt
   ; null= ref empty_elt }
 
-[@@@warning "-32"]
-
-let[@coverage off] remove_child_n256
+let remove_child_n256
   : n256 record -> 'a elt ref -> 'a elt array -> char -> unit
   = fun record tree children chr ->
     children.(Char.code chr) <- empty_elt ;
@@ -460,7 +458,7 @@ let[@coverage off] remove_child_n256
            done ;
            tree := Node { header= Header node48; children= children' } )
 
-let[@coverage off] remove_child_n48
+let remove_child_n48
   : n48 record -> 'a elt ref -> 'a elt array -> char -> unit
   = fun record tree children chr ->
     let pos = Char.code record.keys.!{Char.code chr} in
@@ -479,4 +477,86 @@ let[@coverage off] remove_child_n48
                   ; children'.(!child) <- children.(pos)
                   ; incr child )
            done ;
-           tree := Node { header= Header node16; children= children' }  )
+           tree := Node { header= Header node16; children= children' } )
+
+let remove_child_n16
+  : n16 record -> 'a elt ref -> 'a elt array -> int -> unit
+  = fun record tree children pos ->
+    Bytes.blit record.keys (pos + 1) record.keys pos (record.count - 1 - pos) ;
+    Array.blit children (pos + 1) children pos (record.count - 1 - pos) ;
+    record.count <- record.count - 1 ;
+    if record.count == 3
+    then ( let node4 = n4 () in
+           let children' = Array.make 4 empty_elt in
+           Bytes.unsafe_blit record.keys 0 node4.keys 0 3
+         ; Array.blit children 0 children' 0 3
+         ; copy_header ~src:record ~dst:node4
+         ; tree := Node { header= Header node4; children= children' } )
+
+let unsafe_get_key : type a. a record -> int -> char = fun record n -> match record.kind with
+  | N4 -> Bytes.unsafe_get record.keys n
+  | N16 -> Bytes.unsafe_get record.keys n
+  | N48 -> Bytes.unsafe_get record.keys n
+  | N256 -> Char.unsafe_chr n
+  | NULL -> (assert false[@coverage off])
+
+let remove_child_n4
+  : n4 record -> 'a elt ref -> 'a elt array -> int -> unit
+  = fun record tree children pos ->
+    Bytes.blit record.keys (pos + 1) record.keys pos (record.count - 1 - pos) ;
+    Array.blit children (pos + 1) children pos (record.count - 1 - pos) ;
+    record.count <- record.count - 1 ;
+    if record.count = 1
+    then
+      match children.(0) with
+      | Leaf _ -> tree := children.(0)
+      | Node { header= Header ({ prefix_length; _ } as hdr); _ } as child ->
+        let prefix = ref record.prefix_length in
+        if !prefix < 10
+        then ( Bytes.unsafe_set record.prefix !prefix (unsafe_get_key record 0)
+             ; incr prefix ) ;
+        if !prefix < 10
+        then ( let sub = min prefix_length (10 - !prefix) in
+               Bytes.blit hdr.prefix 0 record.prefix !prefix sub ;
+               prefix := !prefix + sub ) ;
+        Bytes.blit record.prefix 0 hdr.prefix 0 (min !prefix 10) ;
+        hdr.prefix_length <- hdr.prefix_length + record.prefix_length + 1 ;
+        tree := child
+
+let remove_child
+  : 'a node -> 'a elt ref -> char -> int -> unit
+  = fun { header= Header record; children } tree chr pos ->
+    match record.kind with
+    | N4 -> remove_child_n4 record tree children pos
+    | N16 -> remove_child_n16 record tree children pos
+    | N48 -> remove_child_n48 record tree children chr
+    | N256 -> remove_child_n256 record tree children chr
+    | NULL -> (()[@coverage off])
+
+let rec remove
+  : 'a elt -> 'a t -> string -> int -> int -> unit
+  = fun elt ({ tree; _ } as v) key key_len depth -> match elt with
+    | Node ({ header= Header header; children; } as node) ->
+      let plen = header.prefix_length in
+      let depth =
+        if plen <> 0
+        then ( let plen' = check_prefix ~prefix:header.prefix ~prefix_length:plen ~off:depth key key_len in
+               if plen' <> min 10 plen then raise Not_found
+             ; depth + plen )
+        else depth in
+      let x = find_child node key.![depth] in
+      if x = not_found || Array.unsafe_get children x == empty_elt
+      then raise Not_found
+      else
+        ( match children.(x) with
+        | Leaf leaf ->
+          leaf_matches leaf ~off:depth key key_len ; remove_child node tree key.![depth] x
+        | Node _ as child ->
+          let v = { v with tree= ref child } in
+          remove child v key key_len (succ depth) )
+    | Leaf leaf ->
+      leaf_matches leaf ~off:depth key key_len ; tree := empty_elt
+
+let remove tree key =
+  if !(tree.tree) == empty_elt then raise Not_found ;
+  remove !(tree.tree) tree key (String.length key) 0

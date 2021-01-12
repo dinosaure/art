@@ -94,3 +94,18 @@ let () =
   let (k1, v1) = Art.minimum art in
   check_eq ~pp:(fun ppf (v:Art.key) -> Fmt.pf ppf "%S" (v :> string)) k0 k1 ;
   check_eq ~pp:Fmt.int v0 v1
+
+let () =
+  add_test ~name:"art/remove" [ list1 (pair key int); list1 (pair key int) ] @@ fun l0 l1 ->
+  let tree = Art.make () in
+  List.iter (fun (k, v) -> Art.insert tree k v) l0 ;
+  List.iter (fun (k, v) -> Art.insert tree k v) l1 ;
+  List.iter (fun (k, _) -> Art.remove tree k) l1 ;
+  let check = fun (k, v0) -> match List.assoc k l1 with
+    | _ -> ()
+    | exception Not_found ->
+      let v1 = Art.find tree k in
+      check_eq v0 v1 in
+  let l0 = List.stable_sort (fun ((a : Art.key), _) ((b : Art.key), _) -> String.compare (a:>string) (b:>string)) l0 in
+  let l0 = unique (fun (a:Art.key) (b:Art.key) -> String.equal (a:>string) (b:>string)) l0 in
+  List.iter check l0
