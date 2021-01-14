@@ -32,3 +32,5 @@ val pp : 'a Fmt.t -> 'a t Fmt.t
 val minimum : 'a t -> key * 'a
 
 val remove : 'a t -> key -> unit
+
+val iter : f:(key -> 'a -> 'acc -> 'acc) -> 'acc -> 'a t -> 'acc

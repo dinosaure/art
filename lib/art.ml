@@ -239,7 +239,7 @@ let add_child_n16
 
 let rec iter_child_n4 keys idx max chr =
   if idx < max then ( if Char.code chr <= Char.code keys.!{idx}
-                      then idx 
+                      then idx
                       else iter_child_n4 keys (succ idx) max chr )
   else max
 
@@ -557,3 +557,13 @@ let rec remove
 let remove tree key =
   if !tree == empty_elt then raise Not_found ;
   remove !tree tree key (String.length key) 0
+
+let rec iter ~f acc = function
+  | Leaf { key; value; } -> f key value acc
+  | Node { children; _ } ->
+    let acc = ref acc in
+    for i = 0 to Array.length children - 1 do acc := iter ~f !acc children.(i) done ;
+    !acc
+(* XXX(dinosaure): [empty_elt] has no children. *)
+
+let iter ~f acc tree = iter ~f acc !tree

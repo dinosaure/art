@@ -389,6 +389,16 @@ let test28 =
   done ;
 ;;
 
+let test29 =
+  Alcotest.test_case "test29" `Quick @@ fun () ->
+  let tree = Art.make () in
+  for i = 1 to 50 do Art.insert tree (Art.key (String.make 1 (Char.chr i))) i done ;
+  let f (key:Art.key) value acc =
+    Alcotest.(check int) "iter" (Char.code (key :> string).[0]) value ;
+    succ acc in
+  Alcotest.(check int) "iter" (Art.iter ~f 0 tree) 50 ;
+;;
+
 let () =
   Alcotest.run "art"
     [ "art", [ test01
@@ -418,4 +428,5 @@ let () =
                 ; test25
                 ; test26
                 ; test27
-                ; test28 ] ]
+                ; test28 ]
+    ; "iter", [ test29 ] ]
