@@ -34,3 +34,7 @@ val minimum : 'a t -> key * 'a
 val remove : 'a t -> key -> unit
 
 val iter : f:(key -> 'a -> 'acc -> 'acc) -> 'acc -> 'a t -> 'acc
+
+val of_seq : (key * 'a) Seq.t -> 'a t
+
+val to_seq : 'a t -> (key * 'a) Seq.t
