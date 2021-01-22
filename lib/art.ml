@@ -317,6 +317,22 @@ let rec minimum = function
     minimum (Array.unsafe_get children !idx)
   | Node { header= Header { kind= NULL; _ }; _ } -> invalid_arg "empty tree"
 
+let rec maximum = function
+  | Leaf leaf -> leaf
+  | Node { header= Header { kind= N4; count; _ }; children; } ->
+    maximum (Array.unsafe_get children (count - 1))
+  | Node { header= Header { kind= N16; count; _ }; children; } ->
+    maximum (Array.unsafe_get children (count - 1))
+  | Node { header= Header { kind= N48; keys; _ }; children; } ->
+    let idx = ref 255 in
+    while keys.!{!idx} = '\048' do decr idx done ;
+    idx := Char.code keys.!{!idx} ; maximum (Array.unsafe_get children !idx)
+  | Node { header= Header { kind= N256; _ }; children; } ->
+    let idx = ref 255 in
+    while Array.unsafe_get children !idx == empty_elt do decr idx done ;
+    maximum (Array.unsafe_get children !idx)
+  | Node { header= Header { kind= NULL; _ }; _ } -> invalid_arg "empty tree"
+
 let prefix_mismatch ({ header= Header header; _ } as node) ~off key len =
   let plen = header.prefix_length in
   let max = min (min plen 10) (len - off) in
@@ -432,6 +448,10 @@ let insert tree key value =
 
 let minimum tree =
   let { value; key; } = minimum !tree in
+  key, value
+
+let maximum tree =
+  let { value; key; } = maximum !tree in
   key, value
 
 let make () = ref empty_elt
