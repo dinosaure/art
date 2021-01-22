@@ -1273,21 +1273,26 @@ module Ringbuffer = struct
 
   let size_of_word = Sys.word_size / 8
 
-  let threshold half n = half + n - 1 [@@inline]
+  let cache_shift = 7
+  let min_ptr = cache_shift - 3
+
   let empty = lnot 0
   let power_of_two ~order = 1 lsl order [@@inline]
 
   let map idx order n =
-    let min = 4 in
-    (((idx land (n - 1)) asr (order + 1 - min)) lor ((idx lsl min) land (n - 1)))
+    (((idx land (n - 1)) asr (order + 1 - min_ptr)) lor ((idx lsl min_ptr) land (n - 1)))
+  [@@inline]
 
   let _tail = 0
   let _head = size_of_word
   let _threshold = _head + size_of_word
   let _array = _threshold + size_of_word
 
+  let _pow2 order = 1 lsl order [@@inline]
+
   let rec _enqueue_loop ~order ~non_empty ring e_idx =
-    let n = (1 lsl order) * 2 in
+    let half = _pow2 order in
+    let n = half * 2 in
     let* tail = fetch_add ~memory_order:Acq_rel Addr.(ring + _tail) Value.beintnat 1 in
     let t_cycle = (tail lsl 1) lor (2 * n - 1) in
     let* entry = atomic_get ~memory_order:Acquire
@@ -1314,20 +1319,22 @@ module Ringbuffer = struct
 
   and _enqueue_retry ~order ~non_empty ring tail t_cycle entry e_idx =
     Log.debug (fun m -> m "enqueue retry") ;
-    let n = (1 lsl order) * 2 in
+    let half = _pow2 order in
+    let n = half * 2 in
     let t_idx = map tail order n in
     let e_cycle = entry lor (2 * n - 1) in
-    if e_cycle < t_cycle && entry = e_cycle
+    if e_cycle - t_cycle < 0 && entry = e_cycle
     then (_enqueue[@tailcall]) ~order ~non_empty ring tail t_cycle t_idx entry e_idx
     else
       let* head = atomic_get ~memory_order:Acquire Addr.(ring + _head) Value.beintnat in
-      if e_cycle < t_cycle && entry = e_cycle lxor n && head <= tail
+      if e_cycle - t_cycle < 0 && entry = e_cycle lxor n && head - tail <= 0
       then (_enqueue[@tailcall]) ~order ~non_empty ring tail t_cycle t_idx entry e_idx
       else (_enqueue_loop[@tailcall]) ~order ~non_empty ring e_idx
 
   let enqueue ~order ~non_empty ring e_idx =
     Log.debug (fun m -> m "enqueue %d" e_idx) ;
-    let n = (1 lsl order) * 2 in
+    let half = _pow2 order in
+    let n = half * 2 in
     _enqueue_loop ~order ~non_empty ring (e_idx lxor (n - 1))
 
   let rec _catchup ring tail head =
@@ -1341,7 +1348,7 @@ module Ringbuffer = struct
     then
       let* head = atomic_get Addr.(ring + _head) Value.beintnat in
       let* tail = atomic_get Addr.(ring + _tail) Value.beintnat in
-      if tail >= head then return ()
+      if tail - head >= 0 then return ()
       else (_catchup[@tailcall]) ring tail head
     else return ()
 
@@ -1349,7 +1356,7 @@ module Ringbuffer = struct
     if not non_empty
     then
       ( let* tail = atomic_get Addr.(ring + _tail) Value.beintnat ~memory_order:Acquire in
-        if tail <= head + 1
+        if tail - (head + 1) <= 0
         then
           let* () = _catchup ring tail (head + 1) in
           let* _  = fetch_sub Addr.(ring + _threshold) Value.beintnat 1 ~memory_order:Acq_rel in
@@ -1379,7 +1386,7 @@ module Ringbuffer = struct
       if entry = entry_new
       then (_dequeue_1[@tailcall]) ~order ~non_empty ring head
       else
-        ( if e_cycle < h_cycle
+        ( if e_cycle - h_cycle < 0
           then
             let entry = ref entry in
             let* res = compare_exchange ~weak:true
