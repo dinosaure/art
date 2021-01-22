@@ -109,3 +109,26 @@ let () =
   let l0 = List.stable_sort (fun ((a : Art.key), _) ((b : Art.key), _) -> String.compare (a:>string) (b:>string)) l0 in
   let l0 = unique (fun (a:Art.key) (b:Art.key) -> String.equal (a:>string) (b:>string)) l0 in
   List.iter check l0
+
+module Map = Map.Make(struct type t = Art.key let compare (a:Art.key) (b:Art.key) = String.compare (a:>string) (b:>string) end)
+
+let incl_mt m t =
+  try Map.iter (fun k v -> let v' = Art.find t k in if v <> v' then raise Not_found) m ; true
+  with Not_found -> false
+
+let incl_tm t m =
+  try Art.iter ~f:(fun k v () -> let v' = Map.find k m in if v <> v' then raise Not_found) () t ; true
+  with Not_found -> false
+
+let () =
+  add_test ~name:"art/remove" [ list (pair key int) ] @@ fun lst ->
+  let arr = Array.of_list lst in
+  let len = Array.length arr in
+  let tree = Art.make () and map = ref Map.empty in
+  Array.iter (fun (k, v) -> Art.insert tree k v ; map := Map.add k v !map) arr ;
+  check_eq (incl_mt !map tree) true ;
+  for i = 0 to len / 3 - 1 do
+    let k, _ = arr.(i) in
+    Art.remove tree k ; map := Map.remove k !map
+  done ;
+  check_eq (incl_mt !map tree && incl_tm tree !map) true

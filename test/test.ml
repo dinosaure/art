@@ -399,6 +399,69 @@ let test29 =
   Alcotest.(check int) "iter" (Art.iter ~f 0 tree) 50 ;
 ;;
 
+module Caml_test = struct
+  module Map = Map.Make(struct type t = Art.key let compare (a:Art.key) (b:Art.key) = String.compare (a:>string) (b:>string) end)
+
+  let incl_mt m t =
+    try Map.iter (fun k v -> let v' = Art.find t k in if v <> v' then raise Not_found) m ; true
+    with Not_found -> false
+
+  let domain_tm t m =
+    try Art.iter ~f:(fun k _ () -> if not (Map.mem k m) then raise Not_found) () t ; true
+    with Not_found -> false
+
+  let incl_tm t m =
+    try Art.iter ~f:(fun k v () -> let v' = Map.find k m in if v <> v' then raise Not_found) () t ; true
+    with Not_found -> false
+
+  let to_list t =
+    Art.iter ~f:(fun k v a -> (k, v) :: a) [] t |> List.stable_sort Stdlib.compare
+
+  let check_to_seq t =
+    let l0 = to_list t in
+    let l1 = List.of_seq (Art.to_seq t) in
+    let l1 = List.stable_sort Stdlib.compare l1 in
+    assert (l0 = l1)
+
+  let test data =
+    Alcotest.test_case "caml" `Quick @@ fun () ->
+    let len = Array.length data in
+    let tree = Art.make () and map = ref Map.empty in
+    Array.iter (fun (k, v) -> Art.insert tree k v ; map := Map.add k v !map) data ;
+    Alcotest.(check bool) "insert" (incl_mt !map tree && domain_tm tree !map) true ;
+    (* check_to_seq_of_seq tree ; *)
+    check_to_seq tree ;
+    for i = 0 to len / 3 - 1 do
+      let (k, _) = data.(i) in
+      Fmt.pr ">>> remove %S.\n%!" (k :> string) ;
+      Art.remove tree k ; map := Map.remove k !map done ;
+    Fmt.pr "map: @[<hov>%a@].\n%!"
+      Fmt.(Dump.iter_bindings Map.iter (always "map") (using (fun (x:Art.key) -> (x :> string)) (fmt "%S")) int) !map ;
+    Fmt.pr "art: @[<hov>%a@].\n%!"
+      (Art.pp Fmt.int) tree ;
+    Alcotest.(check bool) "incl_mt" (incl_mt !map tree) true ;
+    Alcotest.(check bool) "incl_tm" (incl_tm tree !map) true ;
+    Alcotest.(check bool) "remove" (incl_mt !map tree && incl_tm tree !map) true ;
+    (* check_to_seq_of_seq tree ; *)
+    check_to_seq tree ;
+  ;;
+end
+
+let test30 =
+  let data =
+    [| Art.key ":v\171\225]\154\143x\235#\162\182+\184\196\178'e\220R\238\2506b\245w\231'\011\003\150", 0
+     ; Art.key "\185\026\129\171^\b\254\236\1290\169.\247\178\022\240\147%M\133 x\229\020\177.\236\139\017\224\255!\249\201\153K2u\210\247\019\226F\019Q\029\224\1348\194a\240\168\030\217kIsJm\249\247\031{", 1
+     ; Art.key "\164\165\128\156\213\157\236Jx\180\025\186\156F<\215\1905`\246n\007G\206\026b\242\210-Iy\021|@\224cO[\194\213&\r\172\185\185$51Lz\244;\172Ky\195\237s\177\199>\129q\243", 2
+     ; Art.key "\r\183\028)\128N\227\236\253\234\146\248\206Q\188\145+\139\2001\197,\250\182vr\026\217\246\142w\159U\230\206x\020\221`\168\198\200\1372E\170\139,Zu.h\250\026\190*\131@b\019\228v\137C", 3
+     ; Art.key "MX\015\219v\232\187\22041\241\175 \201\200'\"\133\238D\246\232\156(\241\t\141\187\185\019\165\193\129z\214\140\153\236]\127\172\255\159\135W\b\250y\255\202}\b#\134vMR\150\148!\014K\139\184", 4
+     ; Art.key "\155\200:", 5 |] in
+   Caml_test.test data
+
+let random_integers num range =
+  let data = Array.make num (Art.key "", 0) in
+  for i = 0 to num - 1 do data.(i) <- (Art.key (string_of_int (Random.int range)), i) done ;
+  data
+
 let () =
   Alcotest.run "art"
     [ "art", [ test01
@@ -429,4 +492,8 @@ let () =
                 ; test26
                 ; test27
                 ; test28 ]
-    ; "iter", [ test29 ] ]
+    ; "iter", [ test29 ]
+    ; "caml", [ (Caml_test.test Art.[| key "0", 0; key "1", 1; key "2", 2; key "3", 3 |])
+              ; (Caml_test.test Art.[| key "3", 3; key "2", 2; key "1", 1; key "0", 0 |])
+              ; test30
+              ; (Caml_test.test (random_integers 20_000 1_000_000_000)) ] ]

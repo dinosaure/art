@@ -480,6 +480,7 @@ let remove_child_n16
   = fun record tree children pos ->
     Bytes.blit record.keys (pos + 1) record.keys pos (record.count - 1 - pos) ;
     Array.blit children (pos + 1) children pos (record.count - 1 - pos) ;
+    for pos = record.count - 1 to 15 do children.(pos) <- empty_elt done ;
     record.count <- record.count - 1 ;
     if record.count == 3
     then ( let node4 = n4 () in
@@ -501,6 +502,9 @@ let remove_child_n4
   = fun record tree children pos ->
     Bytes.blit record.keys (pos + 1) record.keys pos (record.count - 1 - pos) ;
     Array.blit children (pos + 1) children pos (record.count - 1 - pos) ;
+    for pos = record.count  - 1 to 3 do children.(pos) <- empty_elt done ;
+    if (record.count - 1 - pos) = 0 then children.(pos) <- empty_elt ;
+    (* XXX(dinosaure): remove trailing children. *)
     record.count <- record.count - 1 ;
     if record.count = 1
     then
@@ -546,7 +550,8 @@ let rec remove
       else
         ( match children.(x) with
         | Leaf leaf ->
-          leaf_matches leaf ~off:depth key key_len ; remove_child node tree key.![depth] x
+          leaf_matches leaf ~off:depth key key_len ;
+          remove_child node tree key.![depth] x
         | Node _ as child ->
           let cur = ref child in
           remove child cur key key_len (succ depth)
@@ -567,3 +572,21 @@ let rec iter ~f acc = function
 (* XXX(dinosaure): [empty_elt] has no children. *)
 
 let iter ~f acc tree = iter ~f acc !tree
+
+type 'a enumerate =  End | More of key * 'a * 'a elt * 'a enumerate
+
+let rec cons_enum elt e = match elt with
+  | Leaf { key; value; } -> More (key, value, empty_elt, e)
+  | Node { children; _ } ->
+    Array.fold_left (fun e elt -> cons_enum elt e) e children
+
+let rec seq_of_enum c () = match c with
+  | End -> Seq.Nil
+  | More (k, v, t, r) -> Seq.Cons ((k, v), seq_of_enum (cons_enum t r))
+
+let to_seq tree = seq_of_enum (cons_enum !tree End)
+
+let of_seq seq =
+  let tree = make () in
+  Seq.iter (fun (k, v) -> insert tree k v) seq ;
+  tree
