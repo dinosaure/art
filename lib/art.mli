@@ -12,29 +12,52 @@
 *)
 
 type 'a t
+(** The type of trees from type {!key} to type ['a]. *)
+
 type key = private string
+(** The type of the tree keys. A {i null-terminated} [string]. *)
 
 val key : string -> key
+
 external unsafe_key : string -> key = "%identity"
 
 val make : unit -> 'a t
+(** [make ()] creates a new, empty tree. *)
 
 val insert : 'a t -> key -> 'a -> unit
+(** [insert t k v] replaces the current binding of [k]
+   in [t] by a binding of [k] to [v]. If [k] is unbound in [t],
+   a binding of [k] to [v] is added to [t]. *)
 
 val find : 'a t -> key -> 'a
 (** [find x t] returns the current binding of [x] in [t], or raises [Not_found]
    if no such binding exists. *)
 
 val find_opt : 'a t -> key -> 'a option
+(** [find_opt x t] returns [Some v] if the current value of [x] in
+   [t] is [v], or [None] if no binding for [x] exists. *)
 
 val pp : 'a Fmt.t -> 'a t Fmt.t
 
 val minimum : 'a t -> key * 'a
+(** Return the binding with the smallest {!key} in a given tree
+   or raise [Invalid_argument] if the tree is empty. *)
+
+val maximum : 'a t -> key * 'a
+(** Same as {!minimum}, but returns the binding with the
+   largest {!key} in the given tree. *)
 
 val remove : 'a t -> key -> unit
+(** [remove t k] removes the current binding of [k] in [t].
+   It raises [Not_found] if [k] is not bound in [t]. *)
 
 val iter : f:(key -> 'a -> 'acc -> 'acc) -> 'acc -> 'a t -> 'acc
+(** [iter ~f a t] computes [(f kN dN ... (f k1 d1 a) ...)], where
+   [k1 ... kN] are the keys of all bindings in [t] (in increasing order),
+   and [d1 ... dN] are the associated data. *)
 
 val of_seq : (key * 'a) Seq.t -> 'a t
+(** Build a tree from the given bindings. *)
 
 val to_seq : 'a t -> (key * 'a) Seq.t
+(** Iterate on the whole map, in increasing order of keys. *)

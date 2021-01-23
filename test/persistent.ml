@@ -35,7 +35,7 @@ let create filename =
   let brk = size_of_word * 2 in
   atomic_set_leuintnat memory 0 Seq_cst brk ;
   let mmu = mmu_of_memory ~sync:identity () ~ring:empty memory in
-  let root = run mmu (Rowex.ctor ()) in
+  let root = run mmu (Persistent.ctor ()) in
   atomic_set_leuintnat memory (Sys.word_size / 8) Seq_cst (root :> int) ;
   Unix.close fd
 ;;
@@ -61,8 +61,8 @@ let mmu_of_optional_file = function
   | Some mmu -> mmu
   | None -> Rresult.R.failwith_error_msg (Lazy.force random_index)
 
-let insert mmu root key v = run mmu (Rowex.insert root (Rowex.key key) v)
-let find mmu root key = run mmu (Rowex.find root (Rowex.key key))
+let insert mmu root key v = run mmu (Persistent.insert root (Rowex.key key) v)
+let find mmu root key = run mmu (Persistent.find root (Rowex.key key))
 
 let reporter ppf =
   let report src level ~over k msgf =

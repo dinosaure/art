@@ -64,7 +64,7 @@ module Index = struct
     let brk = size_of_word * 2 in
     atomic_set_leuintnat memory 0 Seq_cst brk ;
     let mmu = mmu_of_memory ~sync:identity () ~ring:empty memory in
-    let root = run mmu (Rowex.ctor ()) in
+    let root = run mmu (Persistent.ctor ()) in
     atomic_set_leuintnat memory (Sys.word_size / 8) Seq_cst (root :> int) ;
     Unix.close fd
   ;;
@@ -98,8 +98,8 @@ module Index = struct
     Unix.close fd ; append_reader fd_ring ring ; mmu
 end
 
-let insert mmu root key v = run mmu (Rowex.insert root (Rowex.unsafe_key key) v)
-let lookup mmu root key = run mmu (Rowex.find root (Rowex.unsafe_key key))
+let insert mmu root key v = run mmu (Persistent.insert root (Rowex.unsafe_key key) v)
+let lookup mmu root key = run mmu (Persistent.find root (Rowex.unsafe_key key))
 
 let exists mmu root key =
   match lookup mmu root key with

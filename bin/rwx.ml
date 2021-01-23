@@ -46,14 +46,14 @@ let read_eval_print_loop mmu root =
     Format.printf ": %!" ;
     match Astring.String.cuts ~sep:" " (input_line stdin) with
     | [ "insert"; key; value; ] ->
-      ( try let value = int_of_string value in run mmu (Rowex.insert root (Rowex.key key) value) ; loop mmu root
+      ( try let value = int_of_string value in run mmu (Persistent.insert root (Rowex.key key) value) ; loop mmu root
         with exn ->
           Format.printf "# %s.\n%!" (Printexc.to_string exn) ;
           Printexc.print_backtrace stdout ;
           Format.printf "> Invalid key or value: %S -> %S.\n%!" key value ;
           loop mmu root )
     | [ "lookup"; key; ] ->
-      ( try let value = run mmu (Rowex.find (Addr.to_rdonly root) (Rowex.key key)) in
+      ( try let value = run mmu (Persistent.find (Addr.to_rdonly root) (Rowex.key key)) in
           Format.printf "> %S => %10d.\n%!" key (value :> int) ;
           loop mmu root
         with
@@ -81,7 +81,7 @@ let create filename len =
   Logs.debug (fun m -> m "[brk]  set %016x %016x" 0 brk) ;
   atomic_set_leuintnat memory 0 Seq_cst brk ;
   let mmu = mmu_of_memory ~sync:identity () ~ring:empty memory in
-  let root = run mmu (Rowex.ctor ()) in
+  let root = run mmu (Persistent.ctor ()) in
   Logs.debug (fun m -> m "[root] set %016x %016x" size_of_word (root :> int)) ;
   atomic_set_leuintnat memory (Sys.word_size / 8) Seq_cst (root :> int) ;
   Unix.close fd
