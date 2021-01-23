@@ -8,6 +8,9 @@ dev-repo:     "git+https://github.com/dinosaure/art.git"
 doc:          "https://dinosaure.github.io/art/"
 license:      "MIT"
 synopsis:     "Adaptive Radix Tree"
+description: """
+Implementation of an Adaptive Radix Tree in OCaml. A fast hash-table
+like structure plus the order."""
 
 build: [ "dune" "build" "-p" name "-j" jobs ]
 run-test: [ "dune" "runtest" "-p" name "-j" jobs ]
