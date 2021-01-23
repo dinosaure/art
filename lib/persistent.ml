@@ -166,6 +166,60 @@ module Log = (val Logs.src_log src : Logs.LOG)
 
 type ring = memory
 
+type 'a t =
+  | Atomic_get : [< `Rd ] memory_order * [> `Rd ] Addr.t * ([ `Atomic ], 'a) value -> 'a t
+  | Atomic_set : [< `Wr ] memory_order * [> `Wr ] Addr.t * ([ `Atomic ], 'a) value * 'a -> unit t
+  | Fetch_add  : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
+  | Fetch_or   : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
+  | Fetch_sub  : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
+  | Pause_intrinsic : unit t
+  | Compare_exchange : [> `Rd | `Wr ] Addr.t *
+                       ([ `Atomic ], 'a) value * 'a ref * 'a * bool * [< `Rd | `Wr ] memory_order
+                       * [< `Rd | `Wr ] memory_order -> bool t
+  | Get : [> `Rd ] Addr.t * ('c, 'a) value -> 'a t
+  | Allocate : [ `Node | `Leaf ] * string list * int -> [ `Rd | `Wr ] Addr.t t
+  | Delete : _ Addr.t * int -> unit t
+  | Collect : _ Addr.t * int * int -> unit t
+  | Bind : 'a t * ('a -> 'b t) -> 'b t
+  | Return : 'a -> 'a t
+
+let pf = Format.fprintf
+
+let pp : type a. a t fmt = fun ppf v ->
+  let open Rowex in match v with
+  | Atomic_get (m, addr, v) ->
+     pf ppf "atomic_get %016x %a : %a" (addr :> int) pp_memory_order m pp_value v
+  | Atomic_set (m, addr, v, x) ->
+     pf ppf "atomic_set %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
+  | Fetch_add (m, addr, v, x) ->
+     pf ppf "fetch_add  %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
+  | Fetch_or (m, addr, v, x) ->
+     pf ppf "fetch_or   %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
+  | Fetch_sub (m, addr, v, x) ->
+     pf ppf "fetch_sub  %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
+  | Collect (addr, len, uid) ->
+     pf ppf "collect    %016x %d %d" (addr :> int) len uid
+  | Delete (addr, len) ->
+     pf ppf "delete     %016x %d" (addr :> int) len
+  | Get (addr, v) ->
+     pf ppf "get        %016x         : %a" (addr :> int) pp_value v
+  | Allocate (`Node, _, len) ->
+     pf ppf "allocate %3d (node)" len
+  | Allocate (`Leaf, _, len) ->
+     pf ppf "allocate %3d (leaf)" len
+  | Pause_intrinsic ->
+     pf ppf "pause_intrinsic"
+  | Compare_exchange (addr, v, x, y, weak, m0, m1) ->
+    pf ppf "compare_exchange weak:%b %016x %a %a (%a : %a) (%a : %a)" weak (addr :> int)
+       pp_memory_order m0
+       pp_memory_order m1
+       (pp_of_value v) !x pp_value v
+       (pp_of_value v) y pp_value v
+  | Bind (Allocate (_, _, len), _) ->
+     pf ppf "allocate %d byte(s) >>= fun _ ->" len
+  | Bind _ -> pf ppf ">>="
+  | Return _ -> pf ppf "return *"
+
 let rec rrun : type a. ring -> a t -> a = fun memory cmd ->
   let () = match cmd with
     | Bind _ | Return _ -> ()
@@ -189,6 +243,42 @@ let rec rrun : type a. ring -> a t -> a = fun memory cmd ->
   | Return v -> v
   | Bind (v, f) -> let v = rrun memory v in rrun memory (f v)
   | cmd -> invalid_arg "Invalid operation: %a" pp cmd
+
+let ( <.> ) f g = fun x -> f (g x)
+
+module S = struct
+  type nonrec 'a t = 'a t
+
+  let bind x f = Bind (x, f)
+  let return x = Return x
+
+  let get addr value = Get (addr, value)
+
+  let atomic_get ?(memory_order= Seq_cst) addr k = Atomic_get (memory_order, addr, k)
+
+  let atomic_set ?(memory_order= Seq_cst) addr k v = Atomic_set (memory_order, addr, k, v)
+
+  let fetch_add  ?(memory_order= Seq_cst) addr k n = Fetch_add (memory_order, addr, k, n)
+  let fetch_or   ?(memory_order= Seq_cst) addr k n = Fetch_or  (memory_order, addr, k, n)
+  let fetch_sub  ?(memory_order= Seq_cst) addr k n = Fetch_sub (memory_order, addr, k, n)
+
+  let compare_exchange ?(m0= Seq_cst) ?(m1= Seq_cst) ?(weak= false) addr k expected desired =
+    Compare_exchange (addr, k, expected, desired, weak, m0, m1)
+
+  let pause_intrinsic = Pause_intrinsic
+
+  let allocate ~kind ?len payloads =
+    let len = match len with
+      | Some len -> len
+      | None -> List.fold_right (( + ) <.> String.length) payloads 0 in
+    Allocate (kind, payloads, len)
+
+  let delete addr len = Delete (addr, len)
+
+  let collect addr ~len ~uid = Collect (addr, len, uid)
+end
+
+include Make(S)
 
 let free_cells mmu time =
   try
@@ -336,4 +426,3 @@ let rec run : type fd a. fd mmu -> a t -> a = fun ({ memory; _ } as mmu) cmd ->
     run mmu (f ())
   | Bind (v, f) -> let v = run mmu v in run mmu (f v)
   | cmd -> invalid_arg "Invalid operation: %a" pp cmd
-
