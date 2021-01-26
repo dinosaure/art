@@ -60,3 +60,9 @@ This part of the distribution is **experimental** - even if the distribution
 comes with several tests to ensure that the implementation works, ROWEX is fragile!
 It still need a synchronization mechanism `fsync()` which is added pervasively in
 some parts of the code according to outcomes of errors.
+
+[find-bechamel]: https://dinosaure.github.io/art/bench/find.html
+[insert-bechamel]: https://dinosaure.github.io/art/bench/insert.html
+[parmap]: https://github.com/rdicosmo/parmap
+[fork]: https://man7.org/linux/man-pages/man2/fork.2.html
+[ocaml-multicore]: https://github.com/ocaml-multicore/ocaml-multicore
