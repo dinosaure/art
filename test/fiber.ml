@@ -1,6 +1,8 @@
 let src = Logs.Src.create "fiber"
 module Log = (val Logs.src_log src : Logs.LOG)
 
+let () = Printexc.record_backtrace true
+
 type 'a t = ('a -> unit) -> unit
 
 let return x k = k x
@@ -89,6 +91,7 @@ let create_process ?file prgn =
         exit 0
       with exn ->
         Log.err (fun m -> m "Got an error: %S" (Printexc.to_string exn)) ;
+        Log.err (fun m -> m "Backtrace: %s" (Printexc.get_backtrace ())) ;
         exit 127)
   | pid ->
       Unix.close out1 ;

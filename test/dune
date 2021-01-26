@@ -12,7 +12,7 @@
 (library
  (name fiber)
  (modules fiber)
- (libraries fmt logs unix))
+ (libraries logs.fmt fmt.tty fmt logs unix))
 
 (library
  (name tmp)

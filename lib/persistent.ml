@@ -92,6 +92,11 @@ external to_memory
   : (_, _, Bigarray.c_layout) Bigarray.Array1.t -> memory
   = "caml_to_memory" [@@noalloc]
 
+external pwrite
+  : Unix.file_descr -> string -> off:int -> len:int -> int -> unit
+  = "caml_pwrite"
+(* XXX(dinosaure): [uerror] allocates. *)
+
 [@@@warning "-30"]
 
 type 'fd mmu =
@@ -99,6 +104,7 @@ type 'fd mmu =
   ; memory : memory
   ; ringbuffer : 'fd * memory
   ; sync : 'fd -> unit
+  ; write : 'fd -> string -> off:int -> len:int -> int -> unit
   ; free : (int, free_cell list) Hashtbl.t
   ; keep : (int, keep_cell list) Hashtbl.t
   ; readers : int Hashset.t }
@@ -108,6 +114,7 @@ and free_cell =
 and keep_cell =
   { addr : int
   ; len : int }
+type 'fd write = 'fd -> string -> off:int -> len:int -> int -> unit
 
 [@@@warning "+30"]
 
@@ -121,9 +128,9 @@ let append_keep_cell mmu ~time ~addr ~len =
 let append_free_cell mmu ~len ~addr ~time =
   append mmu.free len { addr; time; }
 
-let mmu_of_memory ~sync fd ~ring memory =
+let mmu_of_memory ~sync ~write fd ~ring memory =
   let brk = atomic_get_leuintnat memory 0 Seq_cst in
-  { brk; memory; ringbuffer= fd, ring; sync
+  { brk; memory; ringbuffer= fd, ring; sync; write
   ; free= Hashtbl.create 0x100
   ; keep= Hashtbl.create 0x100
   ; readers= Hashset.create 0x100 }

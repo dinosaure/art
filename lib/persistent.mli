@@ -9,7 +9,9 @@ val rrun : ring -> 'a t -> 'a
 
 type 'fd mmu
 
-val mmu_of_memory : sync:('fd -> unit) -> 'fd -> ring:ring -> memory -> 'fd mmu
+type 'fd write = 'fd -> string -> off:int -> len:int -> int -> unit
+
+val mmu_of_memory : sync:('fd -> unit) -> write:'fd write -> 'fd -> ring:ring -> memory -> 'fd mmu
 val memory_of_mmu : 'fd mmu -> memory
 val root_of_mmu : 'fd mmu -> [ `Rd | `Wr ] Addr.t
 val run : 'fd mmu -> 'a t -> 'a
@@ -44,3 +46,5 @@ external atomic_get_leuintnat
 external to_memory
   : (_, _, Bigarray.c_layout) Bigarray.Array1.t -> memory
   = "caml_to_memory" [@@noalloc]
+
+external pwrite : Unix.file_descr -> string -> off:int -> len:int -> int -> unit = "caml_pwrite"

@@ -1,3 +1,5 @@
+let () = Printexc.record_backtrace true
+
 let reporter ppf =
   let report src level ~over k msgf =
     let k _ =
@@ -63,7 +65,7 @@ module Index = struct
     let memory = to_memory memory in
     let brk = size_of_word * 2 in
     atomic_set_leuintnat memory 0 Seq_cst brk ;
-    let mmu = mmu_of_memory ~sync:identity () ~ring:empty memory in
+    let mmu = mmu_of_memory ~sync:identity ~write:(fun _ _ ~off:_ ~len:_ _ -> ()) () ~ring:empty memory in
     let root = run mmu (Persistent.ctor ()) in
     atomic_set_leuintnat memory (Sys.word_size / 8) Seq_cst (root :> int) ;
     Unix.close fd
@@ -78,7 +80,7 @@ module Index = struct
     let len = len * page_size in
     let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
     let memory = Bigarray.array1_of_genarray memory in
-    let mmu = mmu_of_memory ~sync:Unix.fsync fd_ring ~ring memory in
+    let mmu = mmu_of_memory ~sync:Unix.fsync ~write:pwrite fd_ring ~ring memory in
     Unix.close fd ; mmu
 
   let append_reader fd_ring ring =
@@ -94,7 +96,7 @@ module Index = struct
     let len = len * page_size in
     let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
     let memory = Bigarray.array1_of_genarray memory in
-    let mmu = mmu_of_memory ~sync:identity () ~ring:empty memory in
+    let mmu = mmu_of_memory ~sync:Unix.fsync ~write:pwrite fd ~ring:empty memory in
     Unix.close fd ; append_reader fd_ring ring ; mmu
 end
 
@@ -112,17 +114,22 @@ type kind = [ `Simple_consumer_simple_producer
 let test ~kind dataset filename =
   let ring_filename = Fpath.add_ext "ring" filename in
   RB.create ring_filename ;
+  Logs.debug (fun m -> m "Got the ring-buffer.") ;
   Index.create filename ;
+  Logs.debug (fun m -> m "Create the index.") ;
   let fiber0 () =
     let fd_ring, ring = RB.load ring_filename in
     let mmu = Index.wr_mmu_of_file (fd_ring, ring) filename in
     let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
     let root_rdwr = Addr.of_int_rdwr root in
     let rec go ic n = match input_line ic with
-      | line -> insert mmu root_rdwr line n ; go ic (succ n)
+      | line ->
+        Logs.debug (fun m -> m "Insert %S." line) ;
+        insert mmu root_rdwr line n ; go ic (succ n)
       | exception End_of_file ->
         Logs.debug (fun m -> m "End of writer") ;
         close_in ic in
+    Logs.debug (fun m -> m "Start the writer.") ;
     go (open_in (Fpath.to_string dataset)) 0 in
   let fiber1 dataset () =
     let fd_ring, ring = RB.load ring_filename in
@@ -138,6 +145,7 @@ let test ~kind dataset filename =
         ; Logs.debug (fun m -> m "End of reader: @[<hov>%a@]" Fmt.(Dump.array bool) res)
         ; Queue.push res queue
         ; Queue.fold (fun res x -> x :: res) [] queue ) in
+    Logs.debug (fun m -> m "Start the reader.") ;
     go dataset (Queue.create ()) in
   let dataset =
     let rec go ic acc = match input_line ic with
@@ -151,6 +159,7 @@ let test ~kind dataset filename =
     let readers () =
       let f _ =
         let temp = R.failwith_error_msg (Tmp.tmp "fiber-%s") in
+        Logs.debug (fun m -> m "Run one reader.\n%!") ;
         run_process ~file:(Fpath.to_string temp) (fiber1 dataset) >>= fun _res ->
         return () in
       parallel_iter ~f (List.init (get_concurrency () - 1) identity) >>= fun () ->

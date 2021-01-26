@@ -64,6 +64,44 @@ caml_atomic_set_uint8(value memory, value addr, value memory_order, value v)
   return Val_unit ;
 }
 
+#include <unistd.h> // pwrite
+#include <errno.h> // errno
+#include <string.h> // memove
+#include <caml/threads.h> // caml_release_runtime_system
+#include <caml/unixsupport.h> // uerror
+#define IO_BUFFER_SIZE 65536
+
+CAMLprim value
+caml_pwrite(value v_fd, value v_buf, value v_ofs, value v_len, value v_cur)
+{
+  int ret, n, written;
+  off_t ofs;
+  size_t len;
+  char local[IO_BUFFER_SIZE];
+
+  Begin_root (v_buf);
+  ofs = Long_val(v_ofs);
+  len = Long_val(v_len);
+  written = 0;
+
+  while (len > 0) {
+    n = (len > IO_BUFFER_SIZE) ? IO_BUFFER_SIZE : len ;
+    memmove(local, &Byte(v_buf, ofs), n);
+    caml_release_runtime_system();
+    ret = pwrite(Int_val (v_fd), local, len, Long_val (v_cur) + written) ;
+    caml_acquire_runtime_system();
+    if (ret == -1) {
+      if ((errno == EAGAIN || errno == EWOULDBLOCK) && written > 0) break ;
+      uerror("pwrite", Nothing);
+    }
+    written += ret;
+    ofs += ret;
+    len -= ret;
+  }
+  End_roots ();
+  return Val_unit;
+}
+
 /* XXX(dinosaure): About LE/BE, the usual layout is little-endian. It does not
    exist a portable and static way to see if we compile on a
    big-endian/little-endian computer. To check that, we run a little program
