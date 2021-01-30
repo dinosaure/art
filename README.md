@@ -39,10 +39,10 @@ which expects an implementation of atomic operations such as `load` or `store`.
 The current version of OCaml has a global lock for the GC. By this way, it's not
 possible for us to execute ROWEX operations (`find`/`insert`) with true
 parallelism if we use the same OCaml runtime. Even if you use LWT or ASYNC, you
-execute jobs concurrentely.
+execute jobs concurrently.
 
 However, ROWEX wants to provide an implementation where `find`/`insert` can be
-executed in parralel without any problems (race condition or ABA problem). So
+executed in parallel without any problems (race condition or ABA problem). So
 ROWEX provides an implementation, `persistent`, which implements atomic
 operations on a memory area. Then, we are able, as [`parmap`][parmap], to
 simulate true parallelism as long as each operations are executed into their own
