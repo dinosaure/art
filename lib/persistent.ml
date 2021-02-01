@@ -4,6 +4,8 @@ open Rowex
 
 type memory = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
+type msync = ASYNC | SYNC
+
 external atomic_get_uint8
   : memory -> int -> _ memory_order -> int
   = "caml_atomic_get_uint8" [@@noalloc]
@@ -92,18 +94,13 @@ external to_memory
   : (_, _, Bigarray.c_layout) Bigarray.Array1.t -> memory
   = "caml_to_memory" [@@noalloc]
 
-external pwrite
-  : Unix.file_descr -> string -> off:int -> len:int -> int -> unit
-  = "caml_pwrite"
-(* XXX(dinosaure): [uerror] allocates. *)
-
 [@@@warning "-30"]
 
 type 'fd mmu =
   { mutable brk : int
   ; memory : memory
   ; ringbuffer : 'fd * memory
-  ; sync : 'fd -> unit
+  ; msync : memory -> int -> int -> msync -> unit
   ; write : 'fd -> string -> off:int -> len:int -> int -> unit
   ; free : (int, free_cell list) Hashtbl.t
   ; keep : (int, keep_cell list) Hashtbl.t
@@ -128,9 +125,9 @@ let append_keep_cell mmu ~time ~addr ~len =
 let append_free_cell mmu ~len ~addr ~time =
   append mmu.free len { addr; time; }
 
-let mmu_of_memory ~sync ~write fd ~ring memory =
+let mmu_of_memory ~msync ~write fd ~ring memory =
   let brk = atomic_get_leuintnat memory 0 Seq_cst in
-  { brk; memory; ringbuffer= fd, ring; sync; write
+  { brk; memory; ringbuffer= fd, ring; msync; write
   ; free= Hashtbl.create 0x100
   ; keep= Hashtbl.create 0x100
   ; readers= Hashset.create 0x100 }
@@ -283,9 +280,13 @@ module S = struct
   let delete addr len = Delete (addr, len)
 
   let collect addr ~len ~uid = Collect (addr, len, uid)
+
+  let pp = pp
 end
 
 include Make(S)
+
+let pp ppf addr = pp (formatter ~commit:(fun () -> S.return ()) ppf) addr
 
 let free_cells mmu time =
   try
@@ -297,23 +298,23 @@ let free_cells mmu time =
    multiple writers and one [ringbuffer]. However, to be able to have
    multiple readers and multiple writes, we associate one [ringbuffer]
    for each writer. *)
-let collect ({ ringbuffer= fd, memory; _ } as mmu) =
+let collect ({ ringbuffer= _fd, memory; _ } as mmu) =
   Log.debug (fun m -> m "collect") ;
   let zero = Addr.of_int_rdwr 0 in
-  let rec mark_and_sweep fd memory =
-    mmu.sync fd ;
+  let rec mark_and_sweep memory =
+    mmu.msync memory 0 Ringbuffer.(size_of_order order) SYNC ;
     let res = rrun memory Ringbuffer.(dequeue ~order:order ~non_empty:false zero) in
     if res = lnot 0 then ()
     else if Hashset.mem mmu.readers res
     then ( Hashset.remove mmu.readers res
          ; free_cells mmu res
-         ; mark_and_sweep fd memory )
-    else ( Hashset.add mmu.readers res ; mark_and_sweep fd memory ) in
-  mark_and_sweep fd memory
+         ; mark_and_sweep memory )
+    else ( Hashset.add mmu.readers res ; mark_and_sweep memory ) in
+  mark_and_sweep memory
 
-let older_reader ({ ringbuffer= fd, memory; _ } as mmu) =
+let older_reader ({ ringbuffer= _fd, memory; _ } as mmu) =
   let zero = Addr.of_int_rdwr 0 in
-  mmu.sync fd ;
+  mmu.msync memory 0 Ringbuffer.(size_of_order order) SYNC ;
   let res = rrun memory Ringbuffer.(dequeue ~order:order ~non_empty:false zero) in
   if res = lnot 0 then 0 else res
 
@@ -372,7 +373,7 @@ let alloc mmu ~kind len payloads =
 let rec run : type fd a. fd mmu -> a t -> a = fun ({ memory; _ } as mmu) cmd ->
   let () = match cmd with
     | Bind _ | Return _ -> ()
-    | cmd -> Log.debug (fun m -> m "%a" pp cmd) in
+    | cmd -> Log.debug (fun m -> m "%a" S.pp cmd) in
   match cmd with
   | Atomic_get (memory_order, addr, Int8) ->
      atomic_get_uint8 memory (addr :> int) memory_order
@@ -417,11 +418,13 @@ let rec run : type fd a. fd mmu -> a t -> a = fun ({ memory; _ } as mmu) cmd ->
     atomic_compare_exchange_strong memory (addr :> int) a b (m0, m1)
   | Get (addr, C_string) ->
     let res = get_c_string memory (addr :> int) in
-    Log.debug (fun m -> m "Get %S.\n" res) ; res
+    Log.debug (fun m -> m "Get %S." res) ; res
   | Get (addr, BEInt31) -> get_beint31 memory (addr :> int)
   | Get (addr, BEInt) -> get_beintnat memory (addr :> int)
   | Return v -> v
   | Bind (Allocate (kind, payloads, len), f) ->
+    let len' = List.fold_left (fun a x -> String.length x + a) 0 payloads in
+    assert (len = len') ;
     let addr = alloc mmu ~kind len payloads in
     run mmu (f addr)
   | Collect _ -> ()
@@ -432,4 +435,4 @@ let rec run : type fd a. fd mmu -> a t -> a = fun ({ memory; _ } as mmu) cmd ->
     append_keep_cell mmu ~time:uid ~addr:(addr :> int) ~len ;
     run mmu (f ())
   | Bind (v, f) -> let v = run mmu v in run mmu (f v)
-  | cmd -> invalid_arg "Invalid operation: %a" pp cmd
+  | cmd -> invalid_arg "Invalid operation: %a" S.pp cmd

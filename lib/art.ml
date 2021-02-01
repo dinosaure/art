@@ -69,7 +69,7 @@ let[@coverage off] pp_n16 ppf keys =
     (Array.init 16 (fun i -> keys.!{i}))
 
 let[@coverage off] pp_n48 ppf keys =
-  Fmt.pf ppf "%a" Fmt.(Dump.array pp_char) (Array.init 16 (fun i -> keys.!{i}))
+  Fmt.pf ppf "%a" Fmt.(Dump.array pp_char) (Array.init 48 (fun i -> keys.!{i}))
 
 let[@coverage off] pp_n256 _ppf N256_Key = ()
 

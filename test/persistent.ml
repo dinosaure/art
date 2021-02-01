@@ -19,37 +19,16 @@ let () =
 
 let size_of_word = Sys.word_size / 8
 
-open Rowex
 open Persistent
 
 let identity x = x
 let empty = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0
 
-let create filename =
-  let len = 1_048_576 in
-  let fd  = Unix.openfile filename Unix.[ O_CREAT; O_RDWR ] 0o644 in
-  let _   = Unix.lseek fd len Unix.SEEK_SET in
-  let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.int Bigarray.c_layout true [| len |] in
-  let memory = Bigarray.array1_of_genarray memory in
-  let memory = to_memory memory in
-  let brk = size_of_word * 2 in
-  atomic_set_leuintnat memory 0 Seq_cst brk ;
-  let mmu = mmu_of_memory ~sync:Unix.fsync ~write:pwrite fd ~ring:empty memory in
-  let root = run mmu (Persistent.ctor ()) in
-  atomic_set_leuintnat memory (Sys.word_size / 8) Seq_cst (root :> int) ;
-  Unix.close fd
-;;
+let create filename = Part.create filename
 
 let page_size = 4096
 
-let mmu_of_file filename =
-  let fd = Unix.openfile filename Unix.[ O_RDWR ] 0o644 in
-  let len = ((Unix.fstat fd).st_size + page_size) / page_size in (* XXX(dinosaure): padding. *)
-  let len = len * page_size in
-  let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
-  let memory = Bigarray.array1_of_genarray memory in
-  let mmu = mmu_of_memory ~sync:Unix.fsync ~write:pwrite fd ~ring:empty memory in
-  Unix.close fd ; mmu
+let mmu_of_file filename = Part.unsafe_mmu_of_file filename
 
 let random_index =
   Lazy.from_fun @@ fun () ->
@@ -89,40 +68,34 @@ let () = setup_logs (Some `Ansi_tty) (Some Logs.Debug)
 let test01 =
   Alcotest.test_case "test01" `Quick @@ fun file ->
   let mmu = mmu_of_optional_file file in
-  let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
-  let root_rdwr = Addr.of_int_rdwr root in
-  let root_rd   = Addr.of_int_rdonly root in
-  insert mmu root_rdwr "abc"   1 ;
-  Alcotest.(check int) "abc"   (find mmu root_rd "abc")   1 ;
-  insert mmu root_rdwr "ab"    2 ;
-  Alcotest.(check int) "abc"   (find mmu root_rd "abc")   1 ;
-  Alcotest.(check int) "ab"    (find mmu root_rd "ab")    2 ;
-  insert mmu root_rdwr "abcde" 3 ;
-  Alcotest.(check int) "abc"   (find mmu root_rd "abc")   1 ;
-  Alcotest.(check int) "ab"    (find mmu root_rd "ab")    2 ;
-  Alcotest.(check int) "abcde" (find mmu root_rd "abcde") 3
+  Part.insert mmu "abc"   1 ;
+  Alcotest.(check int) "abc"   (Part.lookup mmu "abc")   1 ;
+  Part.insert mmu "ab"    2 ;
+  Alcotest.(check int) "abc"   (Part.lookup mmu "abc")   1 ;
+  Alcotest.(check int) "ab"    (Part.lookup mmu "ab")    2 ;
+  Part.insert mmu "abcde" 3 ;
+  Alcotest.(check int) "abc"   (Part.lookup mmu "abc")   1 ;
+  Alcotest.(check int) "ab"    (Part.lookup mmu "ab")    2 ;
+  Alcotest.(check int) "abcde" (Part.lookup mmu "abcde") 3
 ;;
 
 let test02 =
   Alcotest.test_case "test02" `Quick @@ fun file ->
   let mmu = mmu_of_optional_file file in
-  let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
-  let root_rdwr = Addr.of_int_rdwr root in
-  let root_rd   = Addr.of_int_rdonly root in
-  insert mmu root_rdwr "a0" 0 ;
-  insert mmu root_rdwr "a1" 1 ;
-  insert mmu root_rdwr "a2" 2 ;
-  insert mmu root_rdwr "a3" 3 ;
-  Alcotest.(check int) "a0" (find mmu root_rd "a0") 0 ;
-  Alcotest.(check int) "a1" (find mmu root_rd "a1") 1 ;
-  Alcotest.(check int) "a2" (find mmu root_rd "a2") 2 ;
-  Alcotest.(check int) "a3" (find mmu root_rd "a3") 3 ;
-  insert mmu root_rdwr "a4" 4 ;
-  Alcotest.(check int) "a0" (find mmu root_rd "a0") 0 ;
-  Alcotest.(check int) "a1" (find mmu root_rd "a1") 1 ;
-  Alcotest.(check int) "a2" (find mmu root_rd "a2") 2 ;
-  Alcotest.(check int) "a3" (find mmu root_rd "a3") 3 ;
-  Alcotest.(check int) "a4" (find mmu root_rd "a4") 4
+  Part.insert mmu "a0" 0 ;
+  Part.insert mmu "a1" 1 ;
+  Part.insert mmu "a2" 2 ;
+  Part.insert mmu "a3" 3 ;
+  Alcotest.(check int) "a0" (Part.lookup mmu "a0") 0 ;
+  Alcotest.(check int) "a1" (Part.lookup mmu "a1") 1 ;
+  Alcotest.(check int) "a2" (Part.lookup mmu "a2") 2 ;
+  Alcotest.(check int) "a3" (Part.lookup mmu "a3") 3 ;
+  Part.insert mmu "a4" 4 ;
+  Alcotest.(check int) "a0" (Part.lookup mmu "a0") 0 ;
+  Alcotest.(check int) "a1" (Part.lookup mmu "a1") 1 ;
+  Alcotest.(check int) "a2" (Part.lookup mmu "a2") 2 ;
+  Alcotest.(check int) "a3" (Part.lookup mmu "a3") 3 ;
+  Alcotest.(check int) "a4" (Part.lookup mmu "a4") 4
 ;;
 
 let random_string len =
@@ -134,18 +107,28 @@ let test03 =
   Alcotest.test_case "test03" `Quick @@ fun file ->
   let max = 500 in
   let mmu = mmu_of_optional_file file in
-  let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
-  let root_rdwr = Addr.of_int_rdwr root in
-  let root_rd   = Addr.of_int_rdonly root in
   let vs = List.init max (fun _ -> random_string (1 + Random.int 63), Random.int max) in
-  List.iter (fun (k, v) -> insert mmu root_rdwr k v) vs ;
+  List.iter (fun (k, v) -> Part.insert mmu k v) vs ;
   Alcotest.(check pass) "insertion" () () ;
   let check k v =
-    Fmt.pr ">>> find %S.\n%!" k ;
-    let v' = find mmu root_rd k in
-    Fmt.pr ">>> found %d.\n%!" v' ;
+    let v' = Part.lookup mmu k in
     Alcotest.(check int) (Fmt.str "%S" k) v' v in
   List.iter (fun (k, v) -> check k v) vs
+;;
+
+let test04 =
+  Alcotest.test_case "test04" `Quick @@ fun file ->
+  let mmu = mmu_of_optional_file file in
+  Part.insert mmu "stone@meekness.com" 0 ;
+  Part.insert mmu "ca-tech@dps,centrin.net.id" 1 ;
+  Part.insert mmu "trinanda_lestyowati@elkomsel.co.id" 2 ;
+  Part.insert mmu "asst_dos@asonrasuna.com" 3 ;
+  Part.insert mmu "amartabali@dps.centrim.net.id" 4 ;
+  Part.insert mmu "achatv@cbn.net.id" 5 ;
+  Part.insert mmu "bali@tuguhotels.com" 6 ;
+  Part.insert mmu "baliminimalist@yahoo.com" 7 ; (* prefix with [li] on a n16 node *)
+  Alcotest.(check int) "bali@tuguhotels.com" (Part.lookup mmu "bali@tuguhotels.com") 6 ;
+  Alcotest.(check int) "baliminimalist@yahoo.com" (Part.lookup mmu "baliminimalist@yahoo.com") 7 ;
 ;;
 
 open Cmdliner
@@ -163,4 +146,4 @@ let filename =
   Arg.(value & opt (some filename) None & info [ "index" ] ~doc)
 
 let () = Alcotest.run_with_args "rowex" filename
-    [ "simple", [ test01; test02; test03 ] ]
+    [ "simple", [ test01; test02; test03; test04 ] ]
