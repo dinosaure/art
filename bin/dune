@@ -3,4 +3,4 @@
  (foreign_stubs
   (language c)
   (names getpagesize))
- (libraries unix fmt logs.fmt fmt.tty astring mmap rowex.persistent))
+ (libraries part fmt logs.fmt fmt.tty astring mmap rowex.persistent))

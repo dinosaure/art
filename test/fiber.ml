@@ -1,6 +1,8 @@
 let src = Logs.Src.create "fiber"
 module Log = (val Logs.src_log src : Logs.LOG)
 
+let () = Printexc.record_backtrace true
+
 type 'a t = ('a -> unit) -> unit
 
 let return x k = k x
@@ -68,6 +70,20 @@ let rec parallel_iter l ~f =
 
 let safe_close fd = try Unix.close fd with _exn -> ()
 
+let _reporter pid ppf =
+  let report src level ~over k msgf =
+    let k _ =
+      over () ;
+      k () in
+    let with_metadata header _tags k ppf fmt =
+      Format.kfprintf k ppf
+        ("[%06d]%a[%a]: " ^^ fmt ^^ "\n%!")
+        pid Logs_fmt.pp_header (level, header)
+        Fmt.(styled `Magenta string)
+        (Logs.Src.name src) in
+    msgf @@ fun ?header ?tags fmt -> with_metadata header tags k ppf fmt in
+  { Logs.report }
+
 let create_process ?file prgn =
   let out0, out1 = match file with
     | None -> Unix.pipe ()
@@ -89,6 +105,7 @@ let create_process ?file prgn =
         exit 0
       with exn ->
         Log.err (fun m -> m "Got an error: %S" (Printexc.to_string exn)) ;
+        Log.err (fun m -> m "Backtrace: %s" (Printexc.get_backtrace ())) ;
         exit 127)
   | pid ->
       Unix.close out1 ;

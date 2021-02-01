@@ -134,7 +134,7 @@ end = struct
 end
 
 and Addr : sig
-  type -'a t = private int constraint 'a = [< `Rd | `Wr ] [@@immediate]
+  type 'a t = private int constraint 'a = [< `Rd | `Wr ] [@@immediate]
 
   val length : int
 
@@ -150,10 +150,11 @@ and Addr : sig
 
   external unsafe_to_leaf : 'a t -> Leaf.t = "%identity"
   external unsafe_of_leaf : Leaf.t -> 'a t = "%identity"
+  external unsafe_to_int : _ t -> int = "%identity"
 
   val ( + ) : 'a t -> int -> 'a t
 end = struct
-  type -'a t = int constraint 'a = [< `Rd | `Wr ]
+  type 'a t = int constraint 'a = [< `Rd | `Wr ]
 
   let length = Sys.word_size / 8
 
@@ -169,6 +170,7 @@ end = struct
 
   external unsafe_to_leaf : 'a t -> Leaf.t = "%identity"
   external unsafe_of_leaf : Leaf.t -> 'a t = "%identity"
+  external unsafe_to_int : _ t -> int = "%identity"
 
   let ( + ) addr v = addr + v [@@inline always]
 end
@@ -401,6 +403,7 @@ let _n256_kind = 0b11
 
 module Make (S : S) = struct
   let ( let* ) = S.bind
+  let ( >>| ) x f = S.bind x (S.return <.> f)
 
   open S
 
@@ -514,6 +517,119 @@ module Make (S : S) = struct
   let n48_any_child addr  = _node_any_child addr ~header:256 Addr.null 0 48
   let n256_any_child addr = _node_any_child addr ~header:0   Addr.null 0 256
 
+  type formatter =
+    { commit : unit -> unit S.t
+    ; ppf : Format.formatter }
+
+  let formatter ~commit ppf = { commit; ppf; }
+
+  let kfprintf
+    : (formatter -> unit S.t -> 'a) -> formatter -> ('b, Format.formatter, unit, 'a) format4 -> 'b
+    = fun k ppft fmt -> Format.kfprintf (fun _ppf -> k ppft @@ ppft.commit ()) ppft.ppf fmt
+
+  let fprintf
+    : formatter -> ('a, Format.formatter, unit, unit S.t) format4 -> 'a
+    = fun ppft fmt -> kfprintf (fun _ t -> t) ppft fmt
+
+  let[@coverage off] pp_char ppf = function
+    | '\x21' .. '\x7e' as chr -> Fmt.char ppf chr
+    | chr -> Fmt.pf ppf "%02x" (Char.code chr)
+
+  let pp_n4 ppf addr =
+    let* _0 = atomic_get Addr.(addr + _header_length + 0) Value.int8 in
+    let* _1 = atomic_get Addr.(addr + _header_length + 1) Value.int8 in
+    let* _2 = atomic_get Addr.(addr + _header_length + 2) Value.int8 in
+    let* _3 = atomic_get Addr.(addr + _header_length + 3) Value.int8 in
+    let arr = [| _0; _1; _2; _3 |] in
+    fprintf ppf "%a" Fmt.(Dump.array (using Char.unsafe_chr pp_char)) arr
+
+  let pp_n16 ppf addr =
+    let* ks = atomic_get Addr.(addr + _header_length) Value.beint128 in
+    let arr = Array.init 16 (fun i -> ks.[i]) in
+    fprintf ppf "%a" Fmt.(Dump.array pp_char) arr
+
+  let pp_n48 ppf addr =
+    let rec go arr i =
+      if i = 48 then return arr
+      else let* chr = atomic_get Addr.(addr + _header_length + i) Value.int8 in
+        ( arr.(i) <- Char.unsafe_chr chr ; go arr (succ i) ) in
+    let* arr = go (Array.make 48 '\000') 0 in
+    fprintf ppf "%a" Fmt.(Dump.array pp_char) arr
+
+  let pp_n256 ppf _addr = fprintf ppf "n256"
+
+  let pp_keys ppf addr =
+    let* ty = get_type addr in
+    match ty with
+    | 0 -> pp_n4 ppf addr
+    | 1 -> pp_n16 ppf addr
+    | 2 -> pp_n48 ppf addr
+    | 3 -> pp_n256 ppf addr
+    | _ -> assert false
+
+  let pp_kind ppf addr =
+    let* ty = get_type addr in
+    match ty with
+    | 0 -> fprintf ppf "%a" Fmt.string "N4"
+    | 1 -> fprintf ppf "%a" Fmt.string "N16"
+    | 2 -> fprintf ppf "%a" Fmt.string "N48"
+    | 3 -> fprintf ppf "%a" Fmt.string "N256"
+    | _ -> assert false
+
+  let pp_record ppf addr =
+    let* prefix, prefix_count = get_prefix addr in
+    let* depth = get Addr.(addr + _header_depth) Value.beint31 in
+    let* () = fprintf ppf "{ @[<hov>prefix= %S;@ prefix_count= %d;@ depth= %d;@ kind= " prefix prefix_count depth in
+    let* () = pp_kind ppf addr in
+    let* () = fprintf ppf ";@] }" in
+    return ()
+
+  let rec pp_children ~header ~n:max ppf addr =
+    let rec go ~header idx arr =
+      if idx < max
+      then
+        let addr = Addr.(addr + _header_length + header + (idx * Addr.length)) in
+        let* addr = atomic_get addr Value.addr_rd in
+        ( arr.(idx) <- addr ; go ~header (succ idx) arr )
+      else return arr in
+    let* arr = go ~header 0 (Array.init max (fun _ -> Addr.null)) in
+    let rec pp ppf = function
+      | [] -> return ()
+      | [ x ] -> pp_elt ppf x
+      | x :: r ->
+        let* () = pp_elt ppf x in
+        let* () = fprintf ppf ";@ " in
+        pp ppf r in
+    let* () = fprintf ppf "[|@[<hov>" in
+    let* () = pp ppf (Array.to_list arr) in
+    let* () = fprintf ppf "@]|]" in
+    return ()
+
+  and pp_elt ppf (addr : [ `Rd ] Addr.t) =
+    if Addr.is_null addr then fprintf ppf "<null>"
+    else if (addr :> int) land 1 = 1
+    then
+      let leaf = Leaf.prj (Addr.unsafe_to_leaf addr) in
+      let* key = get leaf Value.c_string in
+      let len = (String.length key + size_of_word) / size_of_word in (* padding *)
+      let len = len * size_of_word in
+      let* value = get Addr.(leaf + len) Value.beintnat in
+      fprintf ppf "{:leaf @[<hov>key= %S;@ value= %d;@] }" key value
+    else
+      let* n, header = get_type addr >>| function
+        | 0 -> 4, 4 | 1 -> 16, 16 | 2 -> 48, 256 | _ -> 256, 0 in
+      let* () = fprintf ppf "{:node @[<hov>hdr= @[<hov>" in
+      let* () = pp_record ppf addr in
+      let* () = fprintf ppf "@];@ key= @[<hov>" in
+      let* () = pp_keys ppf addr in
+      let* () = fprintf ppf "@];@ children= @[<hov>" in
+      let* () = pp_children ~header ~n ppf addr in
+      let* () = fprintf ppf "@];@] }" in
+      return ()
+
+  let pp ppf (root : [> `Rd ] Addr.t) =
+    pp_elt ppf (Addr.to_rdonly root)
+
   let any_child (addr : [> `Rd] Addr.t) =
     let* ty = get_type addr in
     match ty with
@@ -531,7 +647,7 @@ module Make (S : S) = struct
 
   let minimum (addr : [> `Rd ] Addr.t) = minimum (Addr.to_rdonly addr) [@@inline]
 
-  let find_child addr chr =
+  let find_child (addr : [> `Rd ] Addr.t) chr =
     let k = Char.code chr in
     let* ty = get_type addr in
     Log.debug (fun m -> m "find_child node %c" chr) ;
@@ -563,7 +679,7 @@ module Make (S : S) = struct
      it returns the new value of the level.
   *)
 
-  let check_prefix addr ~key ~key_len level =
+  let check_prefix (addr : [> `Rd ] Addr.t) ~key ~key_len level =
     let* depth = get Addr.(addr + _header_depth) Value.beint31 in
     if key_len < depth
     then raise Not_found (* XXX(dinosaure): we miss something! *)
@@ -610,8 +726,6 @@ module Make (S : S) = struct
      [  ]: no match
      [  ]: skipped level *)
 
-  let ( >>| ) x f = bind x (return <.> f)
-
   type pessimistic =
     | Match of { level : int }
     | Skipped_level
@@ -656,7 +770,7 @@ module Make (S : S) = struct
                          ; level= level land 0x7fffffff })
       else _check_prefix_pessimistic ~key ~minimum ~prefix ~prefix_count ~level:(succ level) (succ idx) max
 
-  let check_prefix_pessimistic (addr : ([ `Wr | `Rd ] as 'a) Addr.t) ~key level =
+  let check_prefix_pessimistic (addr : [> `Rd ] Addr.t) ~key level =
     let* prefix, prefix_count = get_prefix addr in
     let* depth = get Addr.(addr + _header_depth) Value.beint31 in
     if prefix_count + level < depth
@@ -676,7 +790,7 @@ module Make (S : S) = struct
            it seems that [_check_prefix_pessimistic] can return with
            an other [level] value. *)
 
-  let rec _lookup (node : [ `Rd ] Addr.t) ~key ~key_len ~optimistic_match level =
+  let rec _lookup (node : [> `Rd ] Addr.t) ~key ~key_len ~optimistic_match level =
     let* res = check_prefix node ~key ~key_len level in
     let optimistic_match = if res > 0 then true else optimistic_match in
     let level = level + (abs res) in
@@ -698,7 +812,11 @@ module Make (S : S) = struct
              get Addr.(leaf + len) Value.beintnat )
     else _lookup node ~key ~key_len ~optimistic_match (succ level)
 
-  let lookup node ~key ~key_len =
+  let lookup
+    : [> `Rd ] Addr.t -> key:string -> key_len:int -> int t
+    = fun (node : ([> `Rd ] as 'a) Addr.t) ~key ~key_len ->
+    let node = Addr.unsafe_to_int node in
+    let node = Addr.of_int_rdonly node in
     _lookup node ~key ~key_len ~optimistic_match:false 0
 
   let find addr key =
@@ -850,24 +968,26 @@ module Make (S : S) = struct
 
   let n4_update_child addr k ptr = _n4_update_child addr k ptr 0
 
-  let rec _n16_child_pos addr bitfield =
-    if bitfield = 0 then return Addr.null
+  let rec _n16_child_pos addr k bitfield =
+    if bitfield = 0 then assert false
     else
       let p = ctz bitfield in
-      let* child = atomic_get Addr.(addr + _header_length + 16 + (p * Addr.length)) Value.addr_rd in
-      if not (Addr.is_null child) then return child
-      else _n16_child_pos addr (bitfield lxor (1 lsl p))
+      let* k' = atomic_get Addr.(addr + _header_length + p) Value.int8 in
+      let* value = atomic_get Addr.(addr + _header_length + 16 + (p * Addr.length)) Value.addr_rd in
+      if not (Addr.is_null value) && k' = (k lxor 128)
+      then return Addr.(to_rdonly (addr + _header_length + 16 + (p * Addr.length)))
+      else _n16_child_pos addr k (bitfield lxor (1 lsl p))
 
   let _n16_child_pos addr k =
     let* compact_count = atomic_get Addr.(addr + _header_compact_count) Value.beint16 in
     let* keys = atomic_get Addr.(addr + _header_length) Value.beint128 in
     let bitfield = n16_get_child compact_count k keys in
-    _n16_child_pos addr bitfield
+    _n16_child_pos addr k bitfield
 
   let n16_update_child addr k ptr =
-    let* value = _n16_child_pos addr k in
-    let value = Addr.of_int_wronly (value :> int) in (* XXX(dinosaure): unsafe! *)
-    atomic_set ~memory_order:Release value Value.addr_rd ptr
+    let* addr = _n16_child_pos addr k in
+    let addr = Addr.of_int_wronly (addr :> int) in (* XXX(dinosaure): unsafe! *)
+    atomic_set ~memory_order:Release addr Value.addr_rd ptr
 
   let n48_update_child addr k ptr =
     let* idx = atomic_get Addr.(addr + _header_length + k) Value.int8 in
@@ -1200,7 +1320,7 @@ module Make (S : S) = struct
        optimised by OCaml). Then, we compile with [-unbox-closures] to avoid
        allocation on this area - but we need to introspect such optimisation. *)
 
-    and _insert (node : [ `Rd | `Wr ] Addr.t) parent pk level =
+    and _insert (node : [> `Rd | `Wr ] Addr.t) parent pk level =
       let need_to_restart = ref false in
       let* version = get_version node in
       let* res = check_prefix_pessimistic node ~key level in
@@ -1263,7 +1383,8 @@ module Make (S : S) = struct
             let prefix_count = ref 0 in
             let top = min (String.length key - (level + 1)) (String.length key' - (level + 1)) in
             while !prefix_count < top && key.[level + 1 + !prefix_count] = key'.[level + 1 + !prefix_count]
-            do Bytes.set prefix !prefix_count key.[level + 1] ; incr prefix_count done ;
+            do Bytes.set prefix !prefix_count key.[level + 1 + !prefix_count] ; incr prefix_count done ;
+            Log.debug (fun m -> m "prefix:%S (count: %d)" (Bytes.unsafe_to_string prefix) !prefix_count) ;
             let* N4 addr as n4 = alloc_n4 ~prefix:(Bytes.unsafe_to_string prefix)
                 ~prefix_count:!prefix_count ~level:(level + 1 + !prefix_count) in
             (* XXX(dinosaure): Imagine you add "foo" and "fo" into an empty tree (see [ctor]),
@@ -1273,6 +1394,7 @@ module Make (S : S) = struct
                access, it is ~safe~ in this **specific** context. *)
             let* _   = add_child_n4 n4 (Char.code key.![level + 1 + !prefix_count]) leaf in
             let* _   = add_child_n4 n4 (Char.code key'.![level + 1 + !prefix_count]) next in
+            Log.debug (fun m -> m "Update key.[%d] = %c." level key.[level]) ;
             let* _   = update_child node (Char.code key.[level]) (Addr.to_rdonly addr) in
             let* _   = write_unlock node in
             return () )

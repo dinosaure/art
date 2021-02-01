@@ -14,7 +14,7 @@
  (name rowex)
  (modules rowex)
  (public_name rowex)
- (libraries logs)
+ (libraries fmt logs)
  (ocamlopt_flags -O3)
  (foreign_stubs
   (language c)
@@ -36,6 +36,14 @@
    (:include endian.sexp)
    (:include sse.sexp))
   (names persistent)))
+
+(library
+ (name part)
+ (modules part)
+ (libraries mmap persistent)
+ (foreign_stubs
+  (language c)
+  (names part)))
 
 (rule
  (targets endian.sexp)

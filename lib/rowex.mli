@@ -99,8 +99,12 @@ end
 module Make (S : S) : sig
   open S
 
-  val find : [ `Rd ] Addr.t -> key -> int t
-  val insert : [ `Rd | `Wr ] Addr.t -> key -> int -> unit t
+  type formatter
+
+  val formatter : commit:(unit -> unit S.t) -> Format.formatter -> formatter
+  val pp : formatter -> [> `Rd ] Addr.t -> unit t
+  val find : [> `Rd ] Addr.t -> key -> int t
+  val insert : [> `Rd | `Wr ] Addr.t -> key -> int -> unit t
   val ctor : unit -> [ `Rd | `Wr ] Addr.t t
 
   module Ringbuffer : sig
@@ -115,6 +119,19 @@ module Make (S : S) : sig
     val order_of_int : int -> order
     val size_of_order : order -> int
   end
+
+  (** / *)
+
+  type pessimistic =
+    | Match of { level : int }
+    | Skipped_level
+    | No_match of { non_matching_key : char
+                  ; non_matching_prefix : string
+                  ; level : int }
+
+  val check_prefix_pessimistic : [> `Rd ] Addr.t -> key:string -> int -> pessimistic t
+  val check_prefix : [> `Rd ] Addr.t -> key:string -> key_len:int -> int -> int t
+  val find_child : [> `Rd ] Addr.t -> char -> [ `Rd ] Addr.t t
 end
 
 (** / **)

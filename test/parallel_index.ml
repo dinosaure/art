@@ -1,3 +1,5 @@
+let () = Printexc.record_backtrace true
+
 let reporter ppf =
   let report src level ~over k msgf =
     let k _ =
@@ -13,96 +15,13 @@ let reporter ppf =
     msgf @@ fun ?header ?tags fmt -> with_metadata header tags k ppf fmt in
   { Logs.report }
 
-open Rowex
-open Persistent
 open Rresult
 
 let identity x = x
 let size_of_word = Sys.word_size / 8
 
-module RB = struct
-  let order = Ringbuffer.order
-
-  let create filename =
-    let filename = Fpath.to_string filename in
-    let len = Ringbuffer.size_of_order order in
-    let fd  = Unix.openfile filename Unix.[ O_CREAT; O_RDWR ] 0o644 in
-    let _   = Unix.lseek fd len Unix.SEEK_SET in
-    let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.int Bigarray.c_layout true [| len |] in
-    let memory = Bigarray.array1_of_genarray memory in
-    let memory = to_memory memory in
-    atomic_set_leuintnat memory (size_of_word * 0) Seq_cst 0 ;
-    atomic_set_leuintnat memory (size_of_word * 1) Seq_cst 0 ;
-    atomic_set_leuintnat memory (size_of_word * 2) Seq_cst (-1) ;
-    for i = 0 to (1 lsl ((order :> int) + 1)) - 1 do
-      atomic_set_leuintnat memory (size_of_word * (3 + i)) Seq_cst (-1)
-    done ;
-    Unix.close fd
-
-  let load filename =
-    let filename = Fpath.to_string filename in
-    let len = Ringbuffer.size_of_order order in
-    let fd  = Unix.openfile filename Unix.[ O_CREAT; O_RDWR ] 0o644 in
-    let _   = Unix.lseek fd len Unix.SEEK_SET in
-    let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.int Bigarray.c_layout true [| len |] in
-    let memory = Bigarray.array1_of_genarray memory in
-    let memory = to_memory memory in
-    fd, memory
-end
-
-module Index = struct
-  let empty = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0
-
-  let create filename =
-    let len = 1_048_576 in
-    let filename = Fpath.to_string filename in
-    let fd  = Unix.openfile filename Unix.[ O_CREAT; O_RDWR ] 0o644 in
-    let _   = Unix.lseek fd len Unix.SEEK_SET in
-    let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.int Bigarray.c_layout true [| len |] in
-    let memory = Bigarray.array1_of_genarray memory in
-    let memory = to_memory memory in
-    let brk = size_of_word * 2 in
-    atomic_set_leuintnat memory 0 Seq_cst brk ;
-    let mmu = mmu_of_memory ~sync:identity () ~ring:empty memory in
-    let root = run mmu (Persistent.ctor ()) in
-    atomic_set_leuintnat memory (Sys.word_size / 8) Seq_cst (root :> int) ;
-    Unix.close fd
-  ;;
-
-  let page_size = 4096
-
-  let wr_mmu_of_file (fd_ring, ring) filename =
-    let filename = Fpath.to_string filename in
-    let fd = Unix.openfile filename Unix.[ O_RDWR ] 0o644 in
-    let len = ((Unix.fstat fd).st_size + page_size) / page_size in (* XXX(dinosaure): padding. *)
-    let len = len * page_size in
-    let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
-    let memory = Bigarray.array1_of_genarray memory in
-    let mmu = mmu_of_memory ~sync:Unix.fsync fd_ring ~ring memory in
-    Unix.close fd ; mmu
-
-  let append_reader fd_ring ring =
-    let zero = Addr.of_int_rdwr 0 in
-    Unix.fsync fd_ring ; rrun ring Ringbuffer.(enqueue ~order ~non_empty:false zero (Unix.getpid ())) ; Unix.fsync fd_ring
-
-  let delete_reader fd_ring ring = append_reader fd_ring ring
-
-  let rd_mmu_of_file (fd_ring, ring) filename =
-    let filename = Fpath.to_string filename in
-    let fd = Unix.openfile filename Unix.[ O_RDWR ] 0o644 in
-    let len = ((Unix.fstat fd).st_size + page_size) / page_size in (* XXX(dinosaure): padding. *)
-    let len = len * page_size in
-    let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
-    let memory = Bigarray.array1_of_genarray memory in
-    let mmu = mmu_of_memory ~sync:identity () ~ring:empty memory in
-    Unix.close fd ; append_reader fd_ring ring ; mmu
-end
-
-let insert mmu root key v = run mmu (Persistent.insert root (Rowex.unsafe_key key) v)
-let lookup mmu root key = run mmu (Persistent.find root (Rowex.unsafe_key key))
-
-let exists mmu root key =
-  match lookup mmu root key with
+let exists mmu key =
+  match Part.lookup mmu key with
   | _v -> true
   | exception Not_found -> false
 
@@ -111,33 +30,37 @@ type kind = [ `Simple_consumer_simple_producer
 
 let test ~kind dataset filename =
   let ring_filename = Fpath.add_ext "ring" filename in
-  RB.create ring_filename ;
-  Index.create filename ;
+  Part.RB.create (Fpath.to_string ring_filename) ;
+  Logs.debug (fun m -> m "Got the ring-buffer.") ;
+  Part.create (Fpath.to_string filename) ;
+  Logs.debug (fun m -> m "Create the index.") ;
   let fiber0 () =
-    let fd_ring, ring = RB.load ring_filename in
-    let mmu = Index.wr_mmu_of_file (fd_ring, ring) filename in
-    let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
-    let root_rdwr = Addr.of_int_rdwr root in
+    let ring = Part.RB.load (Fpath.to_string ring_filename) in
+    let mmu = Part.wr_mmu_of_file ~ring (Fpath.to_string filename) in
     let rec go ic n = match input_line ic with
-      | line -> insert mmu root_rdwr line n ; go ic (succ n)
+      | line ->
+        Logs.debug (fun m -> m "Insert %S." line) ;
+        Part.insert mmu line n ; go ic (succ n)
       | exception End_of_file ->
         Logs.debug (fun m -> m "End of writer") ;
         close_in ic in
+    Logs.debug (fun m -> m "Start the writer.") ;
     go (open_in (Fpath.to_string dataset)) 0 in
   let fiber1 dataset () =
-    let fd_ring, ring = RB.load ring_filename in
-    let mmu = Index.rd_mmu_of_file (fd_ring, ring) filename in
-    let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
-    let root_rd = Addr.of_int_rdonly root in
+    let ring = Part.RB.load (Fpath.to_string ring_filename) in
+    let mmu = Part.rd_mmu_of_file ~ring (Fpath.to_string filename) in
     let rec go dataset queue =
-      let res = Array.map (exists mmu root_rd) dataset in
+      let res = Array.map (exists mmu) dataset in
       if not (Array.for_all identity res)
-      then ( Queue.push res queue ; go dataset queue )
+      then ( let _missing = Array.fold_left (fun a -> function true -> a | _ -> succ a) 0 res in
+             Queue.push res queue
+           ; go dataset queue )
       else
-        ( Index.delete_reader fd_ring ring
+        ( Part.delete_reader ring
         ; Logs.debug (fun m -> m "End of reader: @[<hov>%a@]" Fmt.(Dump.array bool) res)
         ; Queue.push res queue
         ; Queue.fold (fun res x -> x :: res) [] queue ) in
+    Logs.debug (fun m -> m "Start the reader.") ;
     go dataset (Queue.create ()) in
   let dataset =
     let rec go ic acc = match input_line ic with
@@ -151,6 +74,7 @@ let test ~kind dataset filename =
     let readers () =
       let f _ =
         let temp = R.failwith_error_msg (Tmp.tmp "fiber-%s") in
+        Logs.debug (fun m -> m "Run one reader.\n%!") ;
         run_process ~file:(Fpath.to_string temp) (fiber1 dataset) >>= fun _res ->
         return () in
       parallel_iter ~f (List.init (get_concurrency () - 1) identity) >>= fun () ->

@@ -9,13 +9,21 @@ val rrun : ring -> 'a t -> 'a
 
 type 'fd mmu
 
-val mmu_of_memory : sync:('fd -> unit) -> 'fd -> ring:ring -> memory -> 'fd mmu
+type 'fd write = 'fd -> string -> off:int -> len:int -> int -> unit
+
+type msync = ASYNC | SYNC
+
+val mmu_of_memory :
+  msync:(memory -> int -> int -> msync -> unit) ->
+  write:'fd write ->
+  'fd -> ring:ring -> memory -> 'fd mmu
 val memory_of_mmu : 'fd mmu -> memory
 val root_of_mmu : 'fd mmu -> [ `Rd | `Wr ] Addr.t
 val run : 'fd mmu -> 'a t -> 'a
 
-val find : [ `Rd ] Addr.t -> key -> int t
-val insert : [ `Rd | `Wr ] Addr.t -> key -> int -> unit t
+val pp : Format.formatter -> [> `Rd ] Addr.t -> unit t
+val find : [> `Rd ] Addr.t -> key -> int t
+val insert : [> `Rd | `Wr ] Addr.t -> key -> int -> unit t
 val ctor : unit -> [ `Rd | `Wr ] Addr.t t
 
 module Ringbuffer : sig
