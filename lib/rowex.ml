@@ -448,8 +448,8 @@ module Make (S : S) = struct
     else
       let p0 = string_get16 prefix 0 in
       let p1 = string_get16 prefix 2 in
-      let prefix = Int64.(logor (shift_left (of_int p0) 48) (shift_left (of_int p1) 32)) in
-      let rs = Int64.(logor prefix (of_int prefix_count)) in
+      let prefix = Int64.(logor (shift_left (of_int p1) 16) (of_int p0)) in
+      let rs = Int64.(logor (shift_left (of_int prefix_count) 32) prefix) in
       atomic_set ~memory_order:Release Addr.(addr + _header_prefix) Value.beint64 rs
 
   (**** FIND CHILD ****)
@@ -1383,7 +1383,7 @@ module Make (S : S) = struct
             let prefix_count = ref 0 in
             let top = min (String.length key - (level + 1)) (String.length key' - (level + 1)) in
             while !prefix_count < top && key.[level + 1 + !prefix_count] = key'.[level + 1 + !prefix_count]
-            do Bytes.set prefix !prefix_count key.[level + 1 + !prefix_count] ; incr prefix_count done ;
+            do if !prefix_count < 4 then Bytes.set prefix !prefix_count key.[level + 1 + !prefix_count] ; incr prefix_count done ;
             Log.debug (fun m -> m "prefix:%S (count: %d)" (Bytes.unsafe_to_string prefix) !prefix_count) ;
             let* N4 addr as n4 = alloc_n4 ~prefix:(Bytes.unsafe_to_string prefix)
                 ~prefix_count:!prefix_count ~level:(level + 1 + !prefix_count) in
