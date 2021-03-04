@@ -24,11 +24,11 @@ end
 
 type ('c, 'a) value =
   | Int8     : ([ `Atomic ], int) value
-  | BEInt    : ([ `Atomic ], int) value
-  | BEInt16  : ([ `Atomic ], int) value
-  | BEInt31  : ([ `Atomic ], int) value
-  | BEInt64  : ([ `Atomic ], int64) value
-  | BEInt128 : ([ `Atomic ], string) value
+  | LEInt    : ([ `Atomic ], int) value
+  | LEInt16  : ([ `Atomic ], int) value
+  | LEInt31  : ([ `Atomic ], int) value
+  | LEInt64  : ([ `Atomic ], int64) value
+  | LEInt128 : ([ `Atomic ], string) value
   | Addr_rd  : ([ `Atomic ], [ `Rd ] Addr.t) value
   | C_string : ([ `Non_atomic ], string) value
 
@@ -94,6 +94,11 @@ module type S = sig
   val allocate : kind:[ `Leaf | `Node ] -> ?len:int -> string list -> [ `Rd | `Wr ] Addr.t t
   val delete : _ Addr.t -> int -> unit t
   val collect : _ Addr.t -> len:int -> uid:int -> unit t
+
+  val rdtsc : int t
+
+  val clflush : [ `Wr ] Addr.t -> unit t
+  val sfence : unit t
 end
 
 module Make (S : S) : sig
