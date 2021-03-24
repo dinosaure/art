@@ -76,6 +76,8 @@ external clflush : int -> unit = "caml_clflush" [@@noalloc]
 
 external sfence : unit -> unit = "caml_sfence" [@@noalloc]
 
+external stream_int : memory -> int -> int -> unit = "caml_stream_int" [@@noalloc]
+
 external atomic_compare_exchange_strong
   : memory -> int -> int ref -> int -> (_ memory_order * _ memory_order) -> bool
   = "caml_atomic_compare_exchange_strong_leuintnat" [@@noalloc]
@@ -193,6 +195,7 @@ type 'a t =
   | Rdtsc : int t
   | Clflush : [ `Wr ] Addr.t -> unit t
   | Sfence : unit t
+  | Stream_int : [ `Wr ] Addr.t * int -> unit t
   | Bind : 'a t * ('a -> 'b t) -> 'b t
   | Return : 'a -> 'a t
 
@@ -231,6 +234,7 @@ let pp : type a. a t fmt = fun ppf v ->
   | Rdtsc -> pf ppf "rdtsc"
   | Clflush addr -> pf ppf "clflush %016x" (addr :> int)
   | Sfence -> pf ppf "sfence"
+  | Stream_int (addr, v) -> pf ppf "movnt64 %016x %x" (addr :> int) v
   | Bind (Allocate (_, _, len), _) ->
      pf ppf "allocate %d byte(s) >>= fun _ ->" len
   | Bind _ -> pf ppf ">>="
@@ -258,6 +262,7 @@ let rec rrun : type a. ring -> a t -> a = fun memory cmd ->
   | Pause_intrinsic -> pause_intrinsic ()
   | Rdtsc -> rdtsc ()
   | Clflush addr -> clflush (addr :> int)
+  | Stream_int (addr, v) -> stream_int memory (addr :> int) v
   | Sfence -> sfence ()
   | Return v -> v
   | Bind (v, f) -> let v = rrun memory v in rrun memory (f v)
@@ -292,6 +297,8 @@ module S = struct
 
   let sfence = Sfence
 
+  let stream_int addr v = Stream_int (addr, v)
+
   let allocate ~kind ?len payloads =
     let len = match len with
       | Some len -> len
@@ -314,6 +321,8 @@ let free_cells mmu time =
     let cells = Hashtbl.find mmu.keep time in
     List.iter (fun { addr; len; } -> append_free_cell mmu ~len ~addr ~time) cells
   with _ -> ()
+
+(* TODO(dinosaure): replace it by a UNIX socket. *)
 
 (* XXX(dinosaure): [collect] must be protected by a global lock if we use
    multiple writers and one [ringbuffer]. However, to be able to have
@@ -442,6 +451,10 @@ let rec run : type fd a. fd mmu -> a t -> a = fun ({ memory; _ } as mmu) cmd ->
     Log.debug (fun m -> m "Get %S." res) ; res
   | Get (addr, LEInt31) -> get_leint31 memory (addr :> int)
   | Get (addr, LEInt) -> get_leintnat memory (addr :> int)
+  | Clflush addr -> clflush (addr :> int)
+  | Stream_int (addr, v) -> stream_int memory (addr :> int) v
+  | Sfence -> sfence ()
+  | Rdtsc -> rdtsc ()
   | Return v -> v
   | Bind (Allocate (kind, payloads, len), f) ->
     let len' = List.fold_left (fun a x -> String.length x + a) 0 payloads in

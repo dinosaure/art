@@ -99,6 +99,7 @@ module type S = sig
 
   val clflush : [ `Wr ] Addr.t -> unit t
   val sfence : unit t
+  val stream_int : [ `Wr ] Addr.t -> int -> unit t
 end
 
 module Make (S : S) : sig

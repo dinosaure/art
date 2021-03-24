@@ -367,3 +367,11 @@ caml_sfence(__unit ())
   asm volatile("sfence" ::: "memory") ;
   return Val_unit ;
 }
+
+CAMLprim value
+caml_stream_int(value memory, value addr, value v)
+{
+  long unsigned int * ptr = memory_uint64_off(memory, addr) ;
+  _mm_stream_si64 ((long long unsigned int *) ptr, Unsigned_long_val (v)) ;
+  return Val_unit ;
+}
