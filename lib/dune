@@ -4,9 +4,6 @@
  (public_name art)
  (libraries fmt)
  (ocamlopt_flags -O3 -unbox-closures -unbox-closures-factor 20)
- (foreign_stubs
-  (language c)
-  (names ctz))
  (instrumentation
   (backend bisect_ppx)))
 
