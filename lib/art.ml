@@ -113,7 +113,18 @@ let[@coverage off] rec pp_elt pp_value ppf = function
 
 let[@coverage off] pp pp_value ppf tree = pp_elt pp_value ppf !tree
 
-external ctz : int -> int = "caml_ctz" [@@noalloc]
+let ctz v =
+  let n = ref 0 and x = ref v and y = ref 0 in
+  if Sys.word_size = 64
+  then ( n := 63 ; y := !x lsl 32 ; if !y != 0 then ( n := !n - 32 ; x := !y ) )
+  else ( n := 31 ) ;
+  y := !x lsl 16 ; if !y != 0 then ( n := !n - 16 ; x := !y ) ;
+  y := !x lsl  8 ; if !y != 0 then ( n := !n -  8 ; x := !y ) ;
+  y := !x lsl  4 ; if !y != 0 then ( n := !n -  4 ; x := !y ) ;
+  y := !x lsl  2 ; if !y != 0 then ( n := !n -  2 ; x := !y ) ;
+  y := !x lsl  1 ; if !y != 0 then ( n := !n -  1 ; ) ;
+  !n - 1
+[@@inline]
 
 let empty_record =
   { prefix= Bytes.empty; prefix_length= 0
