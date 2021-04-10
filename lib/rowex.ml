@@ -882,6 +882,7 @@ module Make (S : S) = struct
             let len = min
                 (prefix_count - ((level land 0x7fffffff) - (level lsr 31)) - 1)
                 _prefix in
+            Log.debug (fun m -> m "len:%d > 0 then blit %S %d bytes 0 %d" len key ((level land 0x7fffffff) + 1) len) ;
             if len > 0
             then Bytes.blit_string key ((level land 0x7fffffff) + 1) res 0 len ;
             return (Bytes.unsafe_to_string res)
@@ -899,6 +900,7 @@ module Make (S : S) = struct
 
   let check_prefix_pessimistic (addr : [> `Rd ] Addr.t) ~key level =
     let* prefix, prefix_count = get_prefix addr in
+    Log.debug (fun m -> m "prefix: %S, prefix-count: %d." prefix prefix_count) ;
     let* depth = get Addr.(addr + _header_depth) Value.leint31 in
     if prefix_count + level < depth
     then return Skipped_level
@@ -908,7 +910,7 @@ module Make (S : S) = struct
       let max = prefix_count in
       let minimum = Lazy.from_fun @@ fun () ->
         let* leaf = minimum addr in
-        get leaf Value.c_string in
+        get (Leaf.prj (Addr.unsafe_to_leaf leaf)) Value.c_string in
       _check_prefix_pessimistic ~key ~minimum
         ~prefix ~prefix_count
         ~level:((level lsl 31) lor level) idx max
@@ -1636,6 +1638,7 @@ module Make (S : S) = struct
               else return () )
         else if (next :> int) land 1 = 1
         then
+          let () = Log.debug (fun m -> m "the child is a leaf.") in
           let* key' = get (Leaf.prj (Addr.unsafe_to_leaf next))
               Value.c_string in
           check_or_raise_duplicate ~level:(level + 1) key key' ;
@@ -1684,7 +1687,9 @@ module Make (S : S) = struct
                 (Char.code key.[level]) (Addr.to_rdonly addr) in
             let* _   = write_unlock node in
             return () )
-        else _insert (Addr.of_int_rdwr (next :> int)) node
+        else
+          let () = Log.debug (fun m -> m "the child is a node.") in
+          _insert (Addr.of_int_rdwr (next :> int)) node
             (Char.code key.[level]) (succ level) ) in
 
     (* XXX(dinosaure): [ctor] creates a [N256] node on the [root]. So, the case
