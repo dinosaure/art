@@ -3,9 +3,6 @@
  (public_name art.landmarks)
  (optional)
  (modules art_landmarks)
- (foreign_stubs
-  (language c)
-  (names ctz))
  (libraries landmarks fmt)
  (preprocess
   (pps landmarks.ppx --auto)))
@@ -15,9 +12,6 @@
 
 (rule
  (copy ../lib/art.mli art_landmarks.mli))
-
-(rule
- (copy ../lib/ctz.c ctz.c))
 
 (executable
  (name bench_insert)
