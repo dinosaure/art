@@ -534,17 +534,22 @@ module Make (S : S) = struct
     return (Bytes.unsafe_to_string prefix,
             Int64.(to_int (shift_right value 32)))
 
-  let set_prefix addr ~prefix ~prefix_count =
+  let ( >>= ) x f = bind x f
+
+  let set_prefix addr ~prefix ~prefix_count flush =
     if prefix_count = 0
     then atomic_set ~memory_order:Release Addr.(addr + _header_prefix)
-        Value.leintnat 0
+        Value.leint64 0L
     else
       let p0 = string_get16 prefix 0 in
       let p1 = string_get16 prefix 2 in
       let prefix = Int64.(logor (shift_left (of_int p1) 16) (of_int p0)) in
       let rs = Int64.(logor (shift_left (of_int prefix_count) 32) prefix) in
       atomic_set ~memory_order:Release Addr.(addr + _header_prefix)
-        Value.leint64 rs
+        Value.leint64 rs >>= fun () ->
+    if flush
+    then clflush Addr.(addr + _header_prefix) 8 false true
+    else return ()
 
   (**** FIND CHILD ****)
 
@@ -888,6 +893,7 @@ module Make (S : S) = struct
             return (Bytes.unsafe_to_string res)
           else
             let res = Bytes.make _prefix '\000' in
+            Log.debug (fun m -> m "blit %S (idx:%d + 1) res 0 (prefix_count:%d - idx:%d - 1)" prefix idx prefix_count idx) ;
             if prefix_count - idx - 1 > 0
             then Bytes.blit_string prefix (idx + 1) res 0
                 (prefix_count - idx - 1) ;
@@ -1583,8 +1589,9 @@ module Make (S : S) = struct
         let* _version = lock_version_or_restart node version need_to_restart in
         if !need_to_restart then (restart[@tailcall]) () else
         let* prefix, _ = get_prefix node in
+        Log.debug (fun m -> m "prefix of the current node %016x: %S" (node :> int) prefix) ;
         let* N4 addr as n4 =
-          alloc_n4 ~prefix ~prefix_count:(level - level') ~level:level' in
+          alloc_n4 ~prefix ~prefix_count:(level' - level) ~level:level' in
         let* _             = add_child_n4 n4 (Char.code key.[level']) leaf
             false in
         let* _             = add_child_n4 n4 (Char.code non_matching_key)
@@ -1616,8 +1623,12 @@ module Make (S : S) = struct
           let* () = update_child parent pk (Addr.to_rdonly addr) in
           let* () = write_unlock parent in
           let* _, prefix_count = get_prefix node in
+          Log.debug (fun m -> m "set-prefix: level':%d" level') ;
+          Log.debug (fun m -> m "set-prefix: level :%d" level ) ;
+          Log.debug (fun m -> m "set-prefix: prefix-count:%d" prefix_count) ;
+          Log.debug (fun m -> m "set-prefix %016x ~prefix:%S ~prefix_count:%d" (node :> int) non_matching_prefix (prefix_count - ((level' - level) + 1))) ;
           let* () = set_prefix node ~prefix:non_matching_prefix
-              ~prefix_count:(prefix_count - ((level' - level) + 1)) in
+              ~prefix_count:(prefix_count - ((level' - level) + 1)) true in
           let* () = write_unlock node in
           return ()
       | Match { level= level' } ->
