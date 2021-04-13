@@ -874,8 +874,10 @@ module Make (S : S) = struct
            a constant value. It's why we can keep it as a [addr Lazy.t]
            without any trouble. *)
         if idx >= _prefix
-        then Lazy.force minimum >>| fun key' -> key'.[idx]
+        then Lazy.force minimum >>| fun key' -> key'.[level land 0x7fffffff]
         else return prefix.[idx] in
+      Log.debug (fun m -> m "(prefix | minimum(node).key)[%d]:%02x <> key.[%d]:%02x" idx (Char.code chr) (level land 0x7fffffff)
+        (Char.code key.[level land 0x7fffffff])) ;
       if chr <> key.[level land 0x7fffffff]
       then
         let non_matching_key = chr in
