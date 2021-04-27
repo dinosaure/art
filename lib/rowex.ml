@@ -867,6 +867,7 @@ module Make (S : S) = struct
 
   let rec _check_prefix_pessimistic
       ~key ~minimum ~prefix ~prefix_count ~level idx max =
+    Log.debug (fun m -> m "check_prefix_pessimistic idx:%d, max:%d" idx max) ;
     if idx = max then return (Match { level= level land 0x7fffffff })
     else
       let* chr =
@@ -874,11 +875,13 @@ module Make (S : S) = struct
            a constant value. It's why we can keep it as a [addr Lazy.t]
            without any trouble. *)
         if idx >= _prefix
-        then Lazy.force minimum >>| fun key' -> key'.[level land 0x7fffffff]
+        then Lazy.force minimum >>| fun key' ->
+          Log.debug (fun m -> m "Get the byte %d from the minimum %S." (level land 0x7fffffff) key') ;
+          key'.![level land 0x7fffffff]
         else return prefix.[idx] in
       Log.debug (fun m -> m "(prefix | minimum(node).key)[%d]:%02x <> key.[%d]:%02x" idx (Char.code chr) (level land 0x7fffffff)
-        (Char.code key.[level land 0x7fffffff])) ;
-      if chr <> key.[level land 0x7fffffff]
+        (Char.code key.![level land 0x7fffffff])) ;
+      if chr <> key.![level land 0x7fffffff]
       then
         let non_matching_key = chr in
         let* non_matching_prefix =
@@ -1559,6 +1562,7 @@ module Make (S : S) = struct
   exception Duplicate
 
   let check_or_raise_duplicate ~level:off a b =
+    Log.debug (fun m -> m "check duplicate ~level:%d %S %S" off a b) ;
     if String.length a = String.length b
     then ( let idx = ref (String.length a - 1) in
            while !idx >= off && a.[!idx] = b.[!idx] do decr idx done ;
@@ -1587,14 +1591,15 @@ module Make (S : S) = struct
                                non_matching_prefix: %S; level: %d }"
                       (node :> int) key level non_matching_key
                       non_matching_prefix level') ;
-        if level' >= String.length key then raise Duplicate ;
+        if level' > String.length key then raise Duplicate ;
+        (* XXX(dinosaure): such [if] is may be wrong... TODO! *)
         let* _version = lock_version_or_restart node version need_to_restart in
         if !need_to_restart then (restart[@tailcall]) () else
         let* prefix, _ = get_prefix node in
         Log.debug (fun m -> m "prefix of the current node %016x: %S" (node :> int) prefix) ;
         let* N4 addr as n4 =
           alloc_n4 ~prefix ~prefix_count:(level' - level) ~level:level' in
-        let* _             = add_child_n4 n4 (Char.code key.[level']) leaf
+        let* _             = add_child_n4 n4 (Char.code key.![level']) leaf
             false in
         let* _             = add_child_n4 n4 (Char.code non_matching_key)
             (Addr.to_rdonly node) false in
