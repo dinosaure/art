@@ -2,6 +2,8 @@
  (name art_landmarks)
  (public_name art.landmarks)
  (optional)
+ (enabled_if
+  (= %{profile} benchmark))
  (modules art_landmarks)
  (foreign_stubs
   (language c)
@@ -23,10 +25,14 @@
  (name bench_insert)
  (modules bench_insert)
  (optional)
+ (enabled_if
+  (= %{profile} benchmark))
  (libraries bechamel bechamel-notty notty.unix bechamel-js art))
 
 (rule
  (targets insert.json)
+ (enabled_if
+  (= %{profile} benchmark))
  (action
   (with-stdout-to
    %{targets}
@@ -35,6 +41,8 @@
 (rule
  (targets insert.html)
  (mode promote)
+ (enabled_if
+  (= %{profile} benchmark))
  (action
   (system "%{bin:bechamel-html} < %{dep:insert.json} > %{targets}")))
 
@@ -42,10 +50,14 @@
  (name bench_find)
  (modules bench_find)
  (optional)
+ (enabled_if
+  (= %{profile} benchmark))
  (libraries base64 bechamel bechamel-notty notty.unix bechamel-js art))
 
 (rule
  (targets find.json)
+ (enabled_if
+  (= %{profile} benchmark))
  (action
   (with-stdout-to
    %{targets}
@@ -54,5 +66,7 @@
 (rule
  (targets find.html)
  (mode promote)
+ (enabled_if
+  (= %{profile} benchmark))
  (action
   (system "%{bin:bechamel-html} < %{dep:find.json} > %{targets}")))
