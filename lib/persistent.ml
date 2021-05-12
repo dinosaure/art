@@ -70,6 +70,14 @@ external atomic_fetch_or_leuintnat
 
 external pause_intrinsic : unit -> unit = "caml_pause_intrinsic" [@@noalloc]
 
+external rdtsc : unit -> int = "caml_rdtsc" [@@noalloc]
+
+external clflush : int -> unit = "caml_clflush" [@@noalloc]
+
+external sfence : unit -> unit = "caml_sfence" [@@noalloc]
+
+external stream_int : memory -> int -> int -> unit = "caml_stream_int" [@@noalloc]
+
 external atomic_compare_exchange_strong
   : memory -> int -> int ref -> int -> (_ memory_order * _ memory_order) -> bool
   = "caml_atomic_compare_exchange_strong_leuintnat" [@@noalloc]
@@ -82,13 +90,13 @@ external get_c_string
   : memory -> int -> string
   = "caml_get_c_string"
 
-external get_beint31
+external get_leint31
   : memory -> int -> int
-  = "caml_get_beint31" [@@noalloc]
+  = "caml_get_leint31" [@@noalloc]
 
-external get_beintnat
+external get_leintnat
   : memory -> int -> int
-  = "caml_get_beintnat" [@@noalloc]
+  = "caml_get_leintnat" [@@noalloc]
 
 external to_memory
   : (_, _, Bigarray.c_layout) Bigarray.Array1.t -> memory
@@ -184,6 +192,10 @@ type 'a t =
   | Allocate : [ `Node | `Leaf ] * string list * int -> [ `Rd | `Wr ] Addr.t t
   | Delete : _ Addr.t * int -> unit t
   | Collect : _ Addr.t * int * int -> unit t
+  | Rdtsc : int t
+  | Clflush : [ `Wr ] Addr.t -> unit t
+  | Sfence : unit t
+  | Stream_int : [ `Wr ] Addr.t * int -> unit t
   | Bind : 'a t * ('a -> 'b t) -> 'b t
   | Return : 'a -> 'a t
 
@@ -219,6 +231,10 @@ let pp : type a. a t fmt = fun ppf v ->
        pp_memory_order m1
        (pp_of_value v) !x pp_value v
        (pp_of_value v) y pp_value v
+  | Rdtsc -> pf ppf "rdtsc"
+  | Clflush addr -> pf ppf "clflush %016x" (addr :> int)
+  | Sfence -> pf ppf "sfence"
+  | Stream_int (addr, v) -> pf ppf "movnt64 %016x %x" (addr :> int) v
   | Bind (Allocate (_, _, len), _) ->
      pf ppf "allocate %d byte(s) >>= fun _ ->" len
   | Bind _ -> pf ppf ">>="
@@ -229,21 +245,25 @@ let rec rrun : type a. ring -> a t -> a = fun memory cmd ->
     | Bind _ | Return _ -> ()
     | cmd -> Log.debug (fun m -> m "%a" pp cmd) in
   match cmd with
-  | Atomic_get (memory_order, addr, BEInt) ->
+  | Atomic_get (memory_order, addr, LEInt) ->
      atomic_get_leuintnat memory (addr :> int) memory_order
-  | Atomic_set (memory_order, addr, BEInt, v) ->
+  | Atomic_set (memory_order, addr, LEInt, v) ->
      atomic_set_leuintnat memory (addr :> int) memory_order v
-  | Fetch_add (memory_order, addr, BEInt, v) ->
+  | Fetch_add (memory_order, addr, LEInt, v) ->
     atomic_fetch_add_leuintnat memory (addr :> int) memory_order v
-  | Fetch_sub (memory_order, addr, BEInt, v) ->
+  | Fetch_sub (memory_order, addr, LEInt, v) ->
     atomic_fetch_sub_leuintnat memory (addr :> int) memory_order v
-  | Fetch_or (memory_order, addr, BEInt, v) ->
+  | Fetch_or (memory_order, addr, LEInt, v) ->
     atomic_fetch_or_leuintnat memory (addr :> int) memory_order v
-  | Compare_exchange (addr, BEInt, a, b, true, m0, m1) ->
+  | Compare_exchange (addr, LEInt, a, b, true, m0, m1) ->
     atomic_compare_exchange_weak memory (addr :> int) a b (m0, m1)
-  | Compare_exchange (addr, BEInt, a, b, false, m0, m1) ->
+  | Compare_exchange (addr, LEInt, a, b, false, m0, m1) ->
     atomic_compare_exchange_strong memory (addr :> int) a b (m0, m1)
   | Pause_intrinsic -> pause_intrinsic ()
+  | Rdtsc -> rdtsc ()
+  | Clflush addr -> clflush (addr :> int)
+  | Stream_int (addr, v) -> stream_int memory (addr :> int) v
+  | Sfence -> sfence ()
   | Return v -> v
   | Bind (v, f) -> let v = rrun memory v in rrun memory (f v)
   | cmd -> invalid_arg "Invalid operation: %a" pp cmd
@@ -271,6 +291,14 @@ module S = struct
 
   let pause_intrinsic = Pause_intrinsic
 
+  let rdtsc = Rdtsc
+
+  let clflush addr = Clflush addr
+
+  let sfence = Sfence
+
+  let stream_int addr v = Stream_int (addr, v)
+
   let allocate ~kind ?len payloads =
     let len = match len with
       | Some len -> len
@@ -293,6 +321,8 @@ let free_cells mmu time =
     let cells = Hashtbl.find mmu.keep time in
     List.iter (fun { addr; len; } -> append_free_cell mmu ~len ~addr ~time) cells
   with _ -> ()
+
+(* TODO(dinosaure): replace it by a UNIX socket. *)
 
 (* XXX(dinosaure): [collect] must be protected by a global lock if we use
    multiple writers and one [ringbuffer]. However, to be able to have
@@ -379,23 +409,23 @@ let rec run : type fd a. fd mmu -> a t -> a = fun ({ memory; _ } as mmu) cmd ->
      atomic_get_uint8 memory (addr :> int) memory_order
   | Atomic_set (memory_order, addr, Int8, v) ->
      atomic_set_uint8 memory (addr :> int) memory_order v
-  | Atomic_get (memory_order, addr, BEInt) ->
+  | Atomic_get (memory_order, addr, LEInt) ->
      atomic_get_leuintnat memory (addr :> int) memory_order
-  | Atomic_set (memory_order, addr, BEInt, v) ->
+  | Atomic_set (memory_order, addr, LEInt, v) ->
      atomic_set_leuintnat memory (addr :> int) memory_order v
-  | Atomic_get (memory_order, addr, BEInt16) ->
+  | Atomic_get (memory_order, addr, LEInt16) ->
      atomic_get_leuint16 memory (addr :> int) memory_order
-  | Atomic_set (memory_order, addr, BEInt16, v) ->
+  | Atomic_set (memory_order, addr, LEInt16, v) ->
      atomic_set_leuint16 memory (addr :> int) memory_order v
-  | Atomic_get (memory_order, addr, BEInt31) ->
+  | Atomic_get (memory_order, addr, LEInt31) ->
      atomic_get_leuint31 memory (addr :> int) memory_order
-  | Atomic_set (memory_order, addr, BEInt31, v) ->
+  | Atomic_set (memory_order, addr, LEInt31, v) ->
      atomic_set_leuint31 memory (addr :> int) memory_order v
-  | Atomic_get (memory_order, addr, BEInt64) ->
+  | Atomic_get (memory_order, addr, LEInt64) ->
      atomic_get_leuint64 memory (addr :> int) memory_order
-  | Atomic_set (memory_order, addr, BEInt64, v) ->
+  | Atomic_set (memory_order, addr, LEInt64, v) ->
      atomic_set_leuint64 memory (addr :> int) memory_order v
-  | Atomic_get (memory_order, addr, BEInt128) ->
+  | Atomic_get (memory_order, addr, LEInt128) ->
     let res = Bytes.create 16 in
     atomic_get_leuint128 memory (addr :> int) memory_order res ;
     Bytes.unsafe_to_string res
@@ -403,24 +433,28 @@ let rec run : type fd a. fd mmu -> a t -> a = fun ({ memory; _ } as mmu) cmd ->
     Addr.of_int_rdonly (atomic_get_leuintnat memory (addr :> int) memory_order)
   | Atomic_set (memory_order, addr, Addr_rd, v) ->
     atomic_set_leuintnat memory (addr :> int) memory_order (v :> int)
-  | Fetch_add (memory_order, addr, BEInt16, v) ->
+  | Fetch_add (memory_order, addr, LEInt16, v) ->
     atomic_fetch_add_leuint16 memory (addr :> int) memory_order v
-  | Fetch_add (memory_order, addr, BEInt, v) ->
+  | Fetch_add (memory_order, addr, LEInt, v) ->
     atomic_fetch_add_leuintnat memory (addr :> int) memory_order v
-  | Fetch_sub (memory_order, addr, BEInt, v) ->
+  | Fetch_sub (memory_order, addr, LEInt, v) ->
     atomic_fetch_sub_leuintnat memory (addr :> int) memory_order v
-  | Fetch_or (memory_order, addr, BEInt, v) ->
+  | Fetch_or (memory_order, addr, LEInt, v) ->
     atomic_fetch_or_leuintnat memory (addr :> int) memory_order v
   | Pause_intrinsic -> pause_intrinsic ()
-  | Compare_exchange (addr, BEInt, a, b, true, m0, m1) ->
+  | Compare_exchange (addr, LEInt, a, b, true, m0, m1) ->
     atomic_compare_exchange_weak memory (addr :> int) a b (m0, m1)
-  | Compare_exchange (addr, BEInt, a, b, false, m0, m1) ->
+  | Compare_exchange (addr, LEInt, a, b, false, m0, m1) ->
     atomic_compare_exchange_strong memory (addr :> int) a b (m0, m1)
   | Get (addr, C_string) ->
     let res = get_c_string memory (addr :> int) in
     Log.debug (fun m -> m "Get %S." res) ; res
-  | Get (addr, BEInt31) -> get_beint31 memory (addr :> int)
-  | Get (addr, BEInt) -> get_beintnat memory (addr :> int)
+  | Get (addr, LEInt31) -> get_leint31 memory (addr :> int)
+  | Get (addr, LEInt) -> get_leintnat memory (addr :> int)
+  | Clflush addr -> clflush (addr :> int)
+  | Stream_int (addr, v) -> stream_int memory (addr :> int) v
+  | Sfence -> sfence ()
+  | Rdtsc -> rdtsc ()
   | Return v -> v
   | Bind (Allocate (kind, payloads, len), f) ->
     let len' = List.fold_left (fun a x -> String.length x + a) 0 payloads in

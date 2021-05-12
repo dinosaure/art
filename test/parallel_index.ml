@@ -53,7 +53,8 @@ let test ~kind dataset filename =
       let res = Array.map (exists mmu) dataset in
       if not (Array.for_all identity res)
       then ( let _missing = Array.fold_left (fun a -> function true -> a | _ -> succ a) 0 res in
-             Queue.push res queue
+             Logs.debug (fun m -> m "Missing %d elements." _missing)
+           ; Queue.push res queue
            ; go dataset queue )
       else
         ( Part.delete_reader ring

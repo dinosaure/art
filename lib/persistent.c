@@ -289,13 +289,13 @@ caml_atomic_compare_exchange_weak_leuintnat(value memory, value addr, value expe
 }
 
 CAMLprim value
-caml_get_beint31(value memory, value addr)
+caml_get_leint31(value memory, value addr)
 {
   return Val_long(memory_uint32_off (memory, addr)[0] & 0x7fffffff) ;
 }
 
 CAMLprim value
-caml_get_beintnat(value memory, value addr)
+caml_get_leintnat(value memory, value addr)
 {
 #if defined(ARCH_SIXTYFOUR)
   return Val_long(memory_uint64_off (memory, addr)[0]) ;
@@ -335,4 +335,43 @@ caml_to_memory(value vbigarray)
   b->flags = CAML_BA_UINT8 | CAML_BA_C_LAYOUT | CAML_BA_MAPPED_FILE ;
 
   CAMLreturn(vbigarray) ;
+}
+
+// XXX(dinosaure): We assume a 64-bits architecture (TODO)
+CAMLprim value
+caml_rdtsc(__unit ())
+{
+  unsigned int hi, lo ;
+  asm volatile ("rdtsc" : "=a" (lo), "=d" (hi)) ;
+  return Val_long ((((intnat) hi) << 32) | lo) ;
+}
+
+// XXX(dinosaure): works on all targets? *)
+CAMLprim value
+caml_clflush(value vptr)
+{
+  volatile char* ptr = (char *) ((intnat) Long_val (vptr)) ;
+#ifdef CLFLUSH
+  asm volatile("clflush %0" : "+m" (*(volatile char *)ptr));
+#elif CLFLUSH_OPT
+  asm volatile(".byte 0x66; clflush %0" : "+m" (*(volatile char *)ptr));
+#elif CLWD
+  asm volatile(".byte 0x66; xsaveopt %0" : "+m" (*(volatile char *)ptr));
+#endif
+  return Val_unit ;
+}
+
+CAMLprim value
+caml_sfence(__unit ())
+{
+  asm volatile("sfence" ::: "memory") ;
+  return Val_unit ;
+}
+
+CAMLprim value
+caml_stream_int(value memory, value addr, value v)
+{
+  long unsigned int * ptr = memory_uint64_off(memory, addr) ;
+  _mm_stream_si64 ((long long unsigned int *) ptr, Unsigned_long_val (v)) ;
+  return Val_unit ;
 }
