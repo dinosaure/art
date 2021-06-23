@@ -34,9 +34,7 @@ let random_index : (_ Part.t, _) result Lazy.t =
   Lazy.from_fun @@ fun () ->
   let open Rresult in
   Bos.OS.File.tmp "index-%s" >>| fun index ->
-  create (Fpath.to_string index) ;
-  let ipc = Fmt.strf "%a.socket" Fpath.pp index in
-  mmu_of_file (Ipc.connect ipc) (Fpath.to_string index)
+  create (Fpath.to_string index) ; mmu_of_file (Fpath.to_string index)
 ;;
 
 let mmu_of_optional_file = function
@@ -220,8 +218,7 @@ let test07 =
   Alcotest.test_case "test07" `Quick @@ fun _file ->
   let index = Rresult.R.get_ok (Bos.OS.File.tmp "index-%s") in
   create (Fpath.to_string index) ;
-  let ipc = Fmt.strf "%a.socket" Fpath.pp index in
-  let mmu = mmu_of_file (Ipc.connect ipc) (Fpath.to_string index) in
+  let mmu = mmu_of_file (Fpath.to_string index) in
   let elts =
     [ "adhidharma@denpasar.wasantara.net.id"
     ; "centralreservation@ramayanahotel.com"
@@ -310,8 +307,7 @@ let test08 =
   Alcotest.test_case "test08" `Quick @@ fun _file ->
   let index = Rresult.R.get_ok (Bos.OS.File.tmp "index-%s") in
   create (Fpath.to_string index) ;
-  let ipc = Fmt.strf "%a.socket" Fpath.pp index in
-  let mmu = mmu_of_file (Ipc.connect ipc) (Fpath.to_string index) in
+  let mmu = mmu_of_file (Fpath.to_string index) in
   let elts =
     [ "adhidharma@denpasar.wasantara.net.id"
     ; "centralreservation@ramayanahotel.com"
@@ -605,8 +601,7 @@ let test09 =
   Alcotest.test_case "test09" `Quick @@ fun _file ->
   let index = Rresult.R.get_ok (Bos.OS.File.tmp "index-%s") in
   create (Fpath.to_string index) ;
-  let ipc = Fmt.strf "%a.socket" Fpath.pp index in
-  let mmu = mmu_of_file (Ipc.connect ipc) (Fpath.to_string index) in
+  let mmu = mmu_of_file (Fpath.to_string index) in
   let elts =
     [ "adhidharma@denpasar.wasantara.net.id"
     ; "centralreservation@ramayanahotel.com"
@@ -953,8 +948,7 @@ let test10 =
   Alcotest.test_case "test10" `Quick @@ fun _file ->
   let index = Rresult.R.get_ok (Bos.OS.File.tmp "index-%s") in
   create (Fpath.to_string index) ;
-  let ipc = Fmt.strf "%a.socket" Fpath.pp index in
-  let mmu = mmu_of_file (Ipc.connect ipc) (Fpath.to_string index) in
+  let mmu = mmu_of_file (Fpath.to_string index) in
   let elts =
     [ "adhidharma@denpasar.wasantara.net.id"
     ; "centralreservation@ramayanahotel.com"
@@ -1794,8 +1788,7 @@ let filename =
     | Ok v when not (Sys.file_exists x) ->
       let open Rresult in
       create (Fpath.to_string v) ;
-      let ipc = Fmt.strf "%a.socket" Fpath.pp v in
-      Ok (mmu_of_file (Ipc.connect ipc) (Fpath.to_string v))
+      Ok (mmu_of_file (Fpath.to_string v))
     | Ok v -> Rresult.R.error_msgf "%a already exists" Fpath.pp v
     | Error _ as err -> err in
   let pp ppf _ = Fmt.pf ppf "#index" in

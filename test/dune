@@ -20,22 +20,6 @@
  (libraries rresult fmt fpath unix))
 
 (executable
- (name rb)
- (modules rb)
- (libraries cmdliner bos rresult fmt.tty fmt.cli logs.fmt logs.cli fmt mmap
-   tmp fiber base64 rowex rowex.persistent unix))
-
-(executable
- (name test_ring)
- (modules test_ring)
- (libraries unix))
-
-(executable
- (name ring)
- (modules ring)
- (libraries mmap base64 rowex rowex.persistent unix alcotest bos))
-
-(executable
  (name parallel_index)
  (modules parallel_index)
  (libraries part cmdliner bos rresult fmt.tty fmt.cli logs.fmt logs.cli fmt
@@ -56,23 +40,6 @@
  (package rowex)
  (deps
   (:test persistent.exe))
- (action
-  (run %{test} --color=always)))
-
-(rule
- (alias runtest)
- (package rowex)
- (deps
-  (:test test_ring.exe)
-  (:rb rb.exe))
- (action
-  (run %{test})))
-
-(rule
- (alias runtest)
- (package rowex)
- (deps
-  (:test ring.exe))
  (action
   (run %{test} --color=always)))
 

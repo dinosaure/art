@@ -29,13 +29,10 @@ type kind = [ `Simple_consumer_simple_producer
             | `Multiple_consumer_simple_producer ]
 
 let test ~kind dataset filename =
-  let ipc = Fpath.add_ext "socket" filename in
-  Logs.debug (fun m -> m "Create the IPC.") ;
   Part.create (Fpath.to_string filename) ;
   Logs.debug (fun m -> m "Create the index.") ;
   let fiber0 () =
-    let ipc = Ipc.connect (Fpath.to_string ipc) in
-    let mmu = Part.wr_mmu_of_file ipc (Fpath.to_string filename) in
+    let mmu = Part.wr_mmu_of_file (Fpath.to_string filename) in
     let rec go ic n = match input_line ic with
       | line ->
         Logs.debug (fun m -> m "Insert %S." line) ;
@@ -46,8 +43,7 @@ let test ~kind dataset filename =
     Logs.debug (fun m -> m "Start the writer.") ;
     go (open_in (Fpath.to_string dataset)) 0 in
   let fiber1 dataset () =
-    let ipc = Ipc.connect (Fpath.to_string ipc) in
-    let mmu = Part.rd_mmu_of_file ipc (Fpath.to_string filename) in
+    let mmu = Part.rd_mmu_of_file (Fpath.to_string filename) in
     let rec go dataset queue =
       let res = Array.map (exists mmu) dataset in
       if not (Array.for_all identity res)
@@ -56,7 +52,7 @@ let test ~kind dataset filename =
            ; Queue.push res queue
            ; go dataset queue )
       else
-        ( Part.delete_reader ipc
+        ( Part.delete_reader (Part.ipc mmu)
         ; Logs.debug (fun m -> m "End of reader: @[<hov>%a@]" Fmt.(Dump.array bool) res)
         ; Queue.push res queue
         ; Queue.fold (fun res x -> x :: res) [] queue ) in

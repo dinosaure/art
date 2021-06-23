@@ -4,8 +4,6 @@ open Rowex
 
 type memory = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
-type msync = ASYNC | SYNC
-
 external atomic_get_uint8
   : memory -> int -> _ memory_order -> int
   = "caml_atomic_get_uint8" [@@noalloc]
@@ -147,6 +145,8 @@ let root_of_mmu { memory; _ } =
   let addr = atomic_get_leuintnat memory size_of_word Seq_cst in
   Addr.of_int_rdwr addr
 
+let ipc_of_mmu { ipc; _ } = ipc
+
 external bigarray_unsafe_set_uint8  : memory -> int -> int -> unit = "%caml_ba_set_1"
 external bigarray_unsafe_set_uint32 : memory -> int -> int32 -> unit = "%caml_bigstring_set32"
 
@@ -174,8 +174,6 @@ let invalid_arg fmt = Format.kasprintf invalid_arg fmt
 
 let src = Logs.Src.create "atomic"
 module Log = (val Logs.src_log src : Logs.LOG)
-
-type ring = memory
 
 type 'a t =
   | Atomic_get : [< `Rd ] memory_order * [> `Rd ] Addr.t * ([ `Atomic ], 'a) value -> 'a t
@@ -238,34 +236,6 @@ let pp : type a. a t fmt = fun ppf v ->
      pf ppf "allocate %d byte(s) >>= fun _ ->" len
   | Bind _ -> pf ppf ">>="
   | Return _ -> pf ppf "return *"
-
-let rec rrun : type a. ring -> a t -> a = fun memory cmd ->
-  let () = match cmd with
-    | Bind _ | Return _ -> ()
-    | cmd -> Log.debug (fun m -> m "%a" pp cmd) in
-  match cmd with
-  | Atomic_get (memory_order, addr, LEInt) ->
-     atomic_get_leuintnat memory (addr :> int) memory_order
-  | Atomic_set (memory_order, addr, LEInt, v) ->
-     atomic_set_leuintnat memory (addr :> int) memory_order v
-  | Fetch_add (memory_order, addr, LEInt, v) ->
-    atomic_fetch_add_leuintnat memory (addr :> int) memory_order v
-  | Fetch_sub (memory_order, addr, LEInt, v) ->
-    atomic_fetch_sub_leuintnat memory (addr :> int) memory_order v
-  | Fetch_or (memory_order, addr, LEInt, v) ->
-    atomic_fetch_or_leuintnat memory (addr :> int) memory_order v
-  | Compare_exchange (addr, LEInt, a, b, true, m0, m1) ->
-    atomic_compare_exchange_weak memory (addr :> int) a b (m0, m1)
-  | Compare_exchange (addr, LEInt, a, b, false, m0, m1) ->
-    atomic_compare_exchange_strong memory (addr :> int) a b (m0, m1)
-  | Pause_intrinsic -> pause_intrinsic ()
-  | Rdtsc -> rdtsc ()
-  | Clflush addr -> clflush (addr :> int)
-  | Stream_int (addr, v) -> stream_int memory (addr :> int) v
-  | Sfence -> sfence ()
-  | Return v -> v
-  | Bind (v, f) -> let v = rrun memory v in rrun memory (f v)
-  | cmd -> invalid_arg "Invalid operation: %a" pp cmd
 
 let ( <.> ) f g = fun x -> f (g x)
 
