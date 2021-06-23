@@ -22,7 +22,7 @@ depends: [
   "logs" {>= "0.7.0"}
   "fpath" {>= "0.7.3" & with-test}
   "ocamlfind" {>= "1.8.1" & with-test}
-  "rresult" {>= "0.6.0" & with-test}
+  "rresult" {>= "0.6.0"}
 ]
 available:
   arch != "ppc64" & arch != "arm32" & arch != "arm64" & arch != "x86_32"
