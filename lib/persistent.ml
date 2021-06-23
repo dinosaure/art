@@ -107,8 +107,7 @@ external to_memory
 type 'fd mmu =
   { mutable brk : int
   ; memory : memory
-  ; ringbuffer : 'fd * memory
-  ; msync : memory -> int -> int -> msync -> unit
+  ; ipc : Ipc.t
   ; write : 'fd -> string -> off:int -> len:int -> int -> unit
   ; free : (int, free_cell list) Hashtbl.t
   ; keep : (int, keep_cell list) Hashtbl.t
@@ -133,9 +132,9 @@ let append_keep_cell mmu ~time ~addr ~len =
 let append_free_cell mmu ~len ~addr ~time =
   append mmu.free len { addr; time; }
 
-let mmu_of_memory ~msync ~write fd ~ring memory =
+let mmu_of_memory ~write ipc memory =
   let brk = atomic_get_leuintnat memory 0 Seq_cst in
-  { brk; memory; ringbuffer= fd, ring; msync; write
+  { brk; memory; ipc; write
   ; free= Hashtbl.create 0x100
   ; keep= Hashtbl.create 0x100
   ; readers= Hashset.create 0x100 }
@@ -328,25 +327,22 @@ let free_cells mmu time =
    multiple writers and one [ringbuffer]. However, to be able to have
    multiple readers and multiple writes, we associate one [ringbuffer]
    for each writer. *)
-let collect ({ ringbuffer= _fd, memory; _ } as mmu) =
+let collect ({ ipc; _ } as mmu) =
   Log.debug (fun m -> m "collect") ;
-  let zero = Addr.of_int_rdwr 0 in
-  let rec mark_and_sweep memory =
-    mmu.msync memory 0 Ringbuffer.(size_of_order order) SYNC ;
-    let res = rrun memory Ringbuffer.(dequeue ~order:order ~non_empty:false zero) in
-    if res = lnot 0 then ()
-    else if Hashset.mem mmu.readers res
-    then ( Hashset.remove mmu.readers res
-         ; free_cells mmu res
-         ; mark_and_sweep memory )
-    else ( Hashset.add mmu.readers res ; mark_and_sweep memory ) in
-  mark_and_sweep memory
+  let rec mark_and_sweep () =
+    if Ipc.is_empty ipc
+    then ()
+    else
+      let res = Int64.to_int (Ipc.dequeue ipc) in
+      if Hashset.mem mmu.readers res
+      then ( Hashset.remove mmu.readers res
+           ; free_cells mmu res
+           ; mark_and_sweep () )
+      else ( Hashset.add mmu.readers res ; mark_and_sweep () ) in
+  mark_and_sweep ()
 
-let older_reader ({ ringbuffer= _fd, memory; _ } as mmu) =
-  let zero = Addr.of_int_rdwr 0 in
-  mmu.msync memory 0 Ringbuffer.(size_of_order order) SYNC ;
-  let res = rrun memory Ringbuffer.(dequeue ~order:order ~non_empty:false zero) in
-  if res = lnot 0 then 0 else res
+let older_reader { ipc; _ } =
+  Int64.to_int (Ipc.dequeue ipc)
 
 let _header_owner = Rowex._header_owner
 
@@ -360,7 +356,7 @@ let ralloc mmu ~kind len payloads =
   let brk = brk * 8 in (* XXX(dinosaure): align memory. *)
   Logs.debug (fun m -> m "brk:%016x, allocate %d byte(s)" brk len) ;
   if brk + len <= Bigarray.Array1.dim mmu.memory
-  then ( let time = if Bigarray.Array1.dim (snd mmu.ringbuffer) = 0 then 0 else older_reader mmu in
+  then ( let time = if Ipc.is_empty mmu.ipc then 0 else older_reader mmu in
          blitv payloads mmu.memory brk
        ; atomic_set_leuintnat mmu.memory 0 Seq_cst (brk + len)
        ; if kind = `Node then atomic_set_leuintnat mmu.memory (brk + _header_owner) Seq_cst time
@@ -386,8 +382,7 @@ let alloc mmu ~kind len payloads =
 (* XXX(dinosaure): first chance or collect *)
 let alloc mmu ~kind len payloads =
   Log.debug (fun m -> m "alloc[0]") ;
-  let _, ring = mmu.ringbuffer in
-  if Bigarray.Array1.dim ring = 0
+  if Ipc.is_empty mmu.ipc
   then ralloc mmu ~kind len payloads
   else
     try match Hashtbl.find mmu.free len with

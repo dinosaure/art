@@ -83,9 +83,13 @@ let size_of_string str =
 
 let () = match Sys.argv with
   | [| _; filename; |] when Sys.file_exists filename ->
-    let mmu = mmu_of_file filename in
+    let ipc = Fmt.strf "%s.socket" filename in
+    let ipc =
+      if Sys.file_exists ipc then Ipc.connect ipc
+      else ( Rresult.R.failwith_error_msg (Ipc.create ipc) ; Ipc.connect ipc ) in
+    let mmu = mmu_of_file ipc filename in
     read_eval_print_loop mmu
   | [| _; "create"; len; filename |] ->
     let len = size_of_string len in
-    create filename len
+    let _ = create filename len in ()
   | _ -> Format.eprintf "%s [create <len>] <filename>\n%!" Sys.argv.(0)
