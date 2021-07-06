@@ -16,7 +16,7 @@ typedef enum memory_order {
 
 #define atomic_load_explicit(x, m) \
   __atomic_load_n((x), (m))
-#define atomic_fetch_add(x, n, m) \
+#define atomic_fetch_add_explicit(x, n, m) \
   __atomic_fetch_add((x), (n), (m))
 #define atomic_store_explicit(x, v, m) \
   __atomic_store_n((x), (v), (m))
@@ -202,7 +202,7 @@ caml_atomic_fetch_add_leuint16(value memory, value addr, value memory_order, val
 #if defined(ART_BIG_ENDIAN)
 #error "atomic_fetch_add on big-endian is not supported."
 #else
-  res = atomic_fetch_add(memory_uint16_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
+  res = atomic_fetch_add_explicit(memory_uint16_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
 #endif
   return Val_long (res) ;
 }
@@ -214,9 +214,9 @@ caml_atomic_fetch_add_leuintnat(value memory, value addr, value memory_order, va
 #if defined(ART_BIG_ENDIAN)
 #error "atomic_fetch_add on big-endian is not supported."
 #elif defined(ARCH_SIXTYFOUR)
-  res = atomic_fetch_add(memory_uint64_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
+  res = atomic_fetch_add_explicit(memory_uint64_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
 #else
-  res = atomic_fetch_add(memory_uint32_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
+  res = atomic_fetch_add_explicit(memory_uint32_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
 #endif
   return Val_long (res) ;
 }
