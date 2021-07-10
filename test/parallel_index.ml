@@ -20,9 +20,12 @@ open Rresult
 let identity x = x
 let size_of_word = Sys.word_size / 8
 
-let exists mmu key =
+let exists mmu v key =
   match Part.lookup mmu key with
-  | _v -> true
+  | v' ->
+    if v <> v'
+    then ( Logs.err (fun m -> m "Wrong value for %s." key) ; exit 1 )
+    else ( Logs.debug (fun m -> m "%s => %d." key v) ; true )
   | exception Not_found -> false
 
 type kind = [ `Simple_consumer_simple_producer
@@ -45,7 +48,7 @@ let test ~kind dataset filename =
   let fiber1 dataset () =
     let mmu = Part.rd_mmu_of_file (Fpath.to_string filename) in
     let rec go dataset queue =
-      let res = Array.map (exists mmu) dataset in
+      let res = Array.mapi (exists mmu) dataset in
       if not (Array.for_all identity res)
       then ( let _missing = Array.fold_left (fun a -> function true -> a | _ -> succ a) 0 res in
              Logs.debug (fun m -> m "Missing %d elements." _missing)
