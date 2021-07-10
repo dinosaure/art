@@ -1,5 +1,3 @@
-let () = Printexc.record_backtrace true
-
 let (.![]) = String.unsafe_get
 (* XXX(dinosaure): see [art.ml] about this unsafe access. *)
 
@@ -433,7 +431,7 @@ let _n48_kind  = 0b10
 let _n256_kind = 0b11
 
 (* XXX(dinosaure): note for me, [msync(2)] does not ensure the **order** of
-   writes and I'm really not sure about the use of it and [clflush] which
+   writes and I'm really not sure about the use of it so we use [clflush] which
    flushes the memory [_cache_line_size] by [_cache_line_size]. By this way, we
    ensure that even if we don't control the order of writes on these areas, it
    seems that P-ART (see RECIPE paper) ensures orders in the design of ROWEX.
@@ -1739,6 +1737,7 @@ module Make (S : S) = struct
 
   [@@@warning "-32"]
 
+  (*
   module Ringbuffer = struct
     let src = Logs.Src.create "ring"
     module Log = (val Logs.src_log src : Logs.LOG)
@@ -1958,4 +1957,5 @@ module Make (S : S) = struct
     let size_of_order order =
       (size_of_word * 3) + (size_of_word lsl (order + 1))
   end
+  *)
 end

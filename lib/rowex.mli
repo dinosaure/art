@@ -1,4 +1,11 @@
-(** Persistent implementation of Adaptive Radix Tree. *)
+(** Persistent implementation of Adaptive Radix Tree.
+
+    This module implements the core of ROWEX/P-ART from the given
+    way to atomically load and store values. This implementation wants to
+    ensure 2 things:
+    - [insert] and [lookup] can be executed in {b true} parallelism
+    - persistence is ensured by required {i syscalls}
+*)
 
 type key = private string
 
@@ -44,28 +51,7 @@ type 'c memory_order =
 
 val pp_memory_order : Format.formatter -> 'c memory_order -> unit
 
-(*
-type 'a t =
-  | Atomic_get : [< `Rd ] memory_order * [> `Rd ] Addr.t * ([ `Atomic ], 'a) value -> 'a t
-  | Atomic_set : [< `Wr ] memory_order * [> `Wr ] Addr.t * ([ `Atomic ], 'a) value * 'a -> unit t
-  | Fetch_add  : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
-  | Fetch_or   : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
-  | Fetch_sub  : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
-  | Pause_intrinsic : unit t
-  | Compare_exchange : [> `Rd | `Wr ] Addr.t *
-                       ([ `Atomic ], 'a) value * 'a ref * 'a * bool * [< `Rd | `Wr ] memory_order
-                       * [< `Rd | `Wr ] memory_order -> bool t
-  | Get : [> `Rd ] Addr.t * ('c, 'a) value -> 'a t
-  | Allocate : [ `Node | `Leaf ] * string list * int -> [ `Rd | `Wr ] Addr.t t
-  | Delete : _ Addr.t * int -> unit t
-  | Collect : _ Addr.t * int * int -> unit t
-  | Bind : 'a t * ('a -> 'b t) -> 'b t
-  | Return : 'a -> 'a t
-*)
-
 type 'a fmt = Format.formatter -> 'a -> unit
-
-(* val pp : 'a t fmt *)
 
 module type S = sig
   type 'a t
@@ -113,19 +99,6 @@ module Make (S : S) : sig
   val insert : [> `Rd | `Wr ] Addr.t -> key -> int -> unit t
   val ctor : unit -> [ `Rd | `Wr ] Addr.t t
 
-  module Ringbuffer : sig
-    type order = private int
-
-    val enqueue : order:order -> non_empty:bool -> [ `Rd | `Wr ] Addr.t -> int -> unit t
-    val dequeue : order:order -> non_empty:bool -> [ `Rd | `Wr ] Addr.t -> int t
-    val peek : order:order -> non_empty:bool -> [ `Rd | `Wr ] Addr.t -> int t
-    val is_empty : [ `Rd | `Wr ] Addr.t -> bool t
-
-    val order : order
-    val order_of_int : int -> order
-    val size_of_order : order -> int
-  end
-
   (** / *)
 
   type pessimistic =
@@ -140,6 +113,6 @@ module Make (S : S) : sig
   val find_child : [> `Rd ] Addr.t -> char -> [ `Rd ] Addr.t t
 end
 
-(** / **)
+(** / *)
 
 val _header_owner : int

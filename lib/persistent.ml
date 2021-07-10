@@ -1,5 +1,3 @@
-let () = Printexc.record_backtrace true
-
 open Rowex
 
 type memory = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
@@ -172,7 +170,7 @@ let rec blitv payloads memory dst_off = match payloads with
 let failwith fmt = Format.kasprintf failwith fmt
 let invalid_arg fmt = Format.kasprintf invalid_arg fmt
 
-let src = Logs.Src.create "atomic"
+let src = Logs.Src.create "persistent"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 type 'a t =
@@ -291,7 +289,7 @@ let free_cells mmu time =
     List.iter (fun { addr; len; } -> append_free_cell mmu ~len ~addr ~time) cells
   with _ -> ()
 
-(* TODO(dinosaure): replace it by a UNIX socket. *)
+(* TODO(dinosaure): replace it by a UNIX socket. DONE by [ipc/ipc.ml]. *)
 
 (* XXX(dinosaure): [collect] must be protected by a global lock if we use
    multiple writers and one [ringbuffer]. However, to be able to have
