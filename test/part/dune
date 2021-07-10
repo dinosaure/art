@@ -1,0 +1,3 @@
+(cram
+ (package rowex)
+ (deps %{bin:part.make} %{bin:part.find} %{bin:part.insert}))
