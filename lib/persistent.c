@@ -364,6 +364,8 @@ caml_clflush(value vptr)
 CAMLprim value
 caml_sfence(__unit ())
 {
+  // TODO(dinosaure): replace it by mfence on AMD... [clflush] is only ordered by
+  // [mfence] on AMD. *)
   asm volatile("sfence" ::: "memory") ;
   return Val_unit ;
 }
