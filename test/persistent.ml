@@ -30,11 +30,12 @@ let page_size = 4096
 
 let mmu_of_file filename = Part.unsafe_mmu_of_file filename
 
-let random_index =
+let random_index : (_ Part.t, _) result Lazy.t =
   Lazy.from_fun @@ fun () ->
   let open Rresult in
   Bos.OS.File.tmp "index-%s" >>| fun index ->
   create (Fpath.to_string index) ; mmu_of_file (Fpath.to_string index)
+;;
 
 let mmu_of_optional_file = function
   | Some mmu -> mmu
@@ -1784,7 +1785,10 @@ open Cmdliner
 
 let filename =
   let parser x = match Fpath.of_string x with
-    | Ok v when not (Sys.file_exists x) -> create (Fpath.to_string v) ; Ok (mmu_of_file (Fpath.to_string v))
+    | Ok v when not (Sys.file_exists x) ->
+      let open Rresult in
+      create (Fpath.to_string v) ;
+      Ok (mmu_of_file (Fpath.to_string v))
     | Ok v -> Rresult.R.error_msgf "%a already exists" Fpath.pp v
     | Error _ as err -> err in
   let pp ppf _ = Fmt.pf ppf "#index" in

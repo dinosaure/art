@@ -11,7 +11,7 @@
  (name rowex)
  (modules rowex)
  (public_name rowex)
- (libraries fmt logs)
+ (libraries ipc fmt logs)
  (ocamlopt_flags -O3)
  (foreign_stubs
   (language c)
@@ -37,7 +37,7 @@
 (library
  (name part)
  (modules part)
- (libraries mmap persistent)
+ (libraries rresult mmap persistent)
  (foreign_stubs
   (language c)
   (names part)))

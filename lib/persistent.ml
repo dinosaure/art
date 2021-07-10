@@ -1,10 +1,6 @@
-let () = Printexc.record_backtrace true
-
 open Rowex
 
 type memory = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
-
-type msync = ASYNC | SYNC
 
 external atomic_get_uint8
   : memory -> int -> _ memory_order -> int
@@ -107,8 +103,7 @@ external to_memory
 type 'fd mmu =
   { mutable brk : int
   ; memory : memory
-  ; ringbuffer : 'fd * memory
-  ; msync : memory -> int -> int -> msync -> unit
+  ; ipc : Ipc.t
   ; write : 'fd -> string -> off:int -> len:int -> int -> unit
   ; free : (int, free_cell list) Hashtbl.t
   ; keep : (int, keep_cell list) Hashtbl.t
@@ -133,9 +128,9 @@ let append_keep_cell mmu ~time ~addr ~len =
 let append_free_cell mmu ~len ~addr ~time =
   append mmu.free len { addr; time; }
 
-let mmu_of_memory ~msync ~write fd ~ring memory =
+let mmu_of_memory ~write ipc memory =
   let brk = atomic_get_leuintnat memory 0 Seq_cst in
-  { brk; memory; ringbuffer= fd, ring; msync; write
+  { brk; memory; ipc; write
   ; free= Hashtbl.create 0x100
   ; keep= Hashtbl.create 0x100
   ; readers= Hashset.create 0x100 }
@@ -147,6 +142,8 @@ let size_of_word = Sys.word_size / 8
 let root_of_mmu { memory; _ } =
   let addr = atomic_get_leuintnat memory size_of_word Seq_cst in
   Addr.of_int_rdwr addr
+
+let ipc_of_mmu { ipc; _ } = ipc
 
 external bigarray_unsafe_set_uint8  : memory -> int -> int -> unit = "%caml_ba_set_1"
 external bigarray_unsafe_set_uint32 : memory -> int -> int32 -> unit = "%caml_bigstring_set32"
@@ -173,10 +170,8 @@ let rec blitv payloads memory dst_off = match payloads with
 let failwith fmt = Format.kasprintf failwith fmt
 let invalid_arg fmt = Format.kasprintf invalid_arg fmt
 
-let src = Logs.Src.create "atomic"
+let src = Logs.Src.create "persistent"
 module Log = (val Logs.src_log src : Logs.LOG)
-
-type ring = memory
 
 type 'a t =
   | Atomic_get : [< `Rd ] memory_order * [> `Rd ] Addr.t * ([ `Atomic ], 'a) value -> 'a t
@@ -240,34 +235,6 @@ let pp : type a. a t fmt = fun ppf v ->
   | Bind _ -> pf ppf ">>="
   | Return _ -> pf ppf "return *"
 
-let rec rrun : type a. ring -> a t -> a = fun memory cmd ->
-  let () = match cmd with
-    | Bind _ | Return _ -> ()
-    | cmd -> Log.debug (fun m -> m "%a" pp cmd) in
-  match cmd with
-  | Atomic_get (memory_order, addr, LEInt) ->
-     atomic_get_leuintnat memory (addr :> int) memory_order
-  | Atomic_set (memory_order, addr, LEInt, v) ->
-     atomic_set_leuintnat memory (addr :> int) memory_order v
-  | Fetch_add (memory_order, addr, LEInt, v) ->
-    atomic_fetch_add_leuintnat memory (addr :> int) memory_order v
-  | Fetch_sub (memory_order, addr, LEInt, v) ->
-    atomic_fetch_sub_leuintnat memory (addr :> int) memory_order v
-  | Fetch_or (memory_order, addr, LEInt, v) ->
-    atomic_fetch_or_leuintnat memory (addr :> int) memory_order v
-  | Compare_exchange (addr, LEInt, a, b, true, m0, m1) ->
-    atomic_compare_exchange_weak memory (addr :> int) a b (m0, m1)
-  | Compare_exchange (addr, LEInt, a, b, false, m0, m1) ->
-    atomic_compare_exchange_strong memory (addr :> int) a b (m0, m1)
-  | Pause_intrinsic -> pause_intrinsic ()
-  | Rdtsc -> rdtsc ()
-  | Clflush addr -> clflush (addr :> int)
-  | Stream_int (addr, v) -> stream_int memory (addr :> int) v
-  | Sfence -> sfence ()
-  | Return v -> v
-  | Bind (v, f) -> let v = rrun memory v in rrun memory (f v)
-  | cmd -> invalid_arg "Invalid operation: %a" pp cmd
-
 let ( <.> ) f g = fun x -> f (g x)
 
 module S = struct
@@ -322,31 +289,28 @@ let free_cells mmu time =
     List.iter (fun { addr; len; } -> append_free_cell mmu ~len ~addr ~time) cells
   with _ -> ()
 
-(* TODO(dinosaure): replace it by a UNIX socket. *)
+(* TODO(dinosaure): replace it by a UNIX socket. DONE by [ipc/ipc.ml]. *)
 
 (* XXX(dinosaure): [collect] must be protected by a global lock if we use
    multiple writers and one [ringbuffer]. However, to be able to have
    multiple readers and multiple writes, we associate one [ringbuffer]
    for each writer. *)
-let collect ({ ringbuffer= _fd, memory; _ } as mmu) =
+let collect ({ ipc; _ } as mmu) =
   Log.debug (fun m -> m "collect") ;
-  let zero = Addr.of_int_rdwr 0 in
-  let rec mark_and_sweep memory =
-    mmu.msync memory 0 Ringbuffer.(size_of_order order) SYNC ;
-    let res = rrun memory Ringbuffer.(dequeue ~order:order ~non_empty:false zero) in
-    if res = lnot 0 then ()
-    else if Hashset.mem mmu.readers res
-    then ( Hashset.remove mmu.readers res
-         ; free_cells mmu res
-         ; mark_and_sweep memory )
-    else ( Hashset.add mmu.readers res ; mark_and_sweep memory ) in
-  mark_and_sweep memory
+  let rec mark_and_sweep () =
+    if Ipc.is_empty ipc
+    then ()
+    else
+      let res = Int64.to_int (Ipc.dequeue ipc) in
+      if Hashset.mem mmu.readers res
+      then ( Hashset.remove mmu.readers res
+           ; free_cells mmu res
+           ; mark_and_sweep () )
+      else ( Hashset.add mmu.readers res ; mark_and_sweep () ) in
+  mark_and_sweep ()
 
-let older_reader ({ ringbuffer= _fd, memory; _ } as mmu) =
-  let zero = Addr.of_int_rdwr 0 in
-  mmu.msync memory 0 Ringbuffer.(size_of_order order) SYNC ;
-  let res = rrun memory Ringbuffer.(dequeue ~order:order ~non_empty:false zero) in
-  if res = lnot 0 then 0 else res
+let older_reader { ipc; _ } =
+  Int64.to_int (Ipc.dequeue ipc)
 
 let _header_owner = Rowex._header_owner
 
@@ -360,7 +324,7 @@ let ralloc mmu ~kind len payloads =
   let brk = brk * 8 in (* XXX(dinosaure): align memory. *)
   Logs.debug (fun m -> m "brk:%016x, allocate %d byte(s)" brk len) ;
   if brk + len <= Bigarray.Array1.dim mmu.memory
-  then ( let time = if Bigarray.Array1.dim (snd mmu.ringbuffer) = 0 then 0 else older_reader mmu in
+  then ( let time = if Ipc.is_empty mmu.ipc then 0 else older_reader mmu in
          blitv payloads mmu.memory brk
        ; atomic_set_leuintnat mmu.memory 0 Seq_cst (brk + len)
        ; if kind = `Node then atomic_set_leuintnat mmu.memory (brk + _header_owner) Seq_cst time
@@ -386,8 +350,7 @@ let alloc mmu ~kind len payloads =
 (* XXX(dinosaure): first chance or collect *)
 let alloc mmu ~kind len payloads =
   Log.debug (fun m -> m "alloc[0]") ;
-  let _, ring = mmu.ringbuffer in
-  if Bigarray.Array1.dim ring = 0
+  if Ipc.is_empty mmu.ipc
   then ralloc mmu ~kind len payloads
   else
     try match Hashtbl.find mmu.free len with
