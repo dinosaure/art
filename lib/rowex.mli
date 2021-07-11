@@ -1,3 +1,5 @@
+exception Duplicate
+
 (** Persistent implementation of Adaptive Radix Tree.
 
     This module implements the core of ROWEX/P-ART from the given

@@ -23,6 +23,9 @@ depends: [
   "fpath" {>= "0.7.3" & with-test}
   "ocamlfind" {>= "1.8.1" & with-test}
   "rresult" {>= "0.6.0"}
+  "cmdliner"
+  "fpath"
+  "mmap"
 ]
 available:
   arch != "ppc64" & arch != "arm32" & arch != "arm64" & arch != "x86_32"

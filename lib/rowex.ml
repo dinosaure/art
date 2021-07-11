@@ -1,3 +1,5 @@
+exception Duplicate
+
 let (.![]) = String.unsafe_get
 (* XXX(dinosaure): see [art.ml] about this unsafe access. *)
 
@@ -1556,8 +1558,6 @@ module Make (S : S) = struct
       let* () = write_unlock n in
       return ()
     | _ -> assert false
-
-  exception Duplicate
 
   let check_or_raise_duplicate ~level:off a b =
     Log.debug (fun m -> m "check duplicate ~level:%d %S %S" off a b) ;

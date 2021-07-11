@@ -6,8 +6,17 @@
 (executable
  (name persistent)
  (modules persistent)
- (libraries part fmt.tty logs.fmt mmap base64 rowex rowex.persistent unix
-   alcotest bos))
+ (libraries
+  part
+  fmt.tty
+  logs.fmt
+  mmap
+  base64
+  rowex
+  rowex.persistent
+  unix
+  alcotest
+  bos))
 
 (library
  (name fiber)
@@ -22,8 +31,22 @@
 (executable
  (name parallel_index)
  (modules parallel_index)
- (libraries part cmdliner bos rresult fmt.tty fmt.cli logs.fmt logs.cli fmt
-   mmap tmp fiber rowex rowex.persistent unix))
+ (libraries
+  part
+  cmdliner
+  bos
+  rresult
+  fmt.tty
+  fmt.cli
+  logs.fmt
+  logs.cli
+  fmt
+  mmap
+  tmp
+  fiber
+  rowex
+  rowex.persistent
+  unix))
 
 ; tests
 

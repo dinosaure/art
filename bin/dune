@@ -1,6 +1,28 @@
 (executable
  (name rwx)
+ (modules rwx)
  (foreign_stubs
   (language c)
   (names getpagesize))
  (libraries part fmt logs.fmt fmt.tty astring mmap rowex.persistent))
+
+(executable
+ (name find)
+ (modules find)
+ (public_name part.find)
+ (package rowex)
+ (libraries cmdliner fpath part fmt logs.fmt fmt.tty logs.cli fmt.cli))
+
+(executable
+ (name make)
+ (modules make)
+ (public_name part.make)
+ (package rowex)
+ (libraries cmdliner fpath part fmt logs.fmt fmt.tty logs.cli fmt.cli))
+
+(executable
+ (name insert)
+ (modules insert)
+ (public_name part.insert)
+ (package rowex)
+ (libraries cmdliner fpath part fmt logs.fmt fmt.tty logs.cli fmt.cli))
