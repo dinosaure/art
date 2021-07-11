@@ -1,7 +1,7 @@
 ## Adaptive Radix Tree (ART) in OCaml
 
-This is an implementation in OCaml of [ART](https://db.in.tum.de/~leis/papers/ART.pdf).
-An Adaptive Radix Tree is like a simple `Hashtbl` with order:
+This is an implementation in OCaml of [ART][ART]. Adaptive Radix Tree is like a
+simple `Hashtbl` with order:
 
 ```ocaml
 # let tree = Art.make () ;;
@@ -53,14 +53,60 @@ The goal of this library is provide:
   [ocaml-multicore][ocaml-multicore]
 - a baby step to be able to manipulate a file by several processes
   (consumers/`find`, producers/`insert`) in parallel
-  
+
+ROWEX follows two main papers:
+- The initial implementation of [ROWEX][ROWEX]
+- A derivation of it to be **persistent**: [PART][PART]
+
+### Tools
+
+The distribution comes with some tools to manipulate an _index_:
+```sh
+$ opam pin add -y https://github.com/dinosaure/art
+$ opam install rowex
+$ part.make index.idx
+$ ls -lh
+-rw-r--r-- 1 user user 8,0M ----- -- --:-- index.idx
+prw------- 1 user user    0 ----- -- --:-- index.idx.socket
+$ part.insert index.idx foo 1
+$ part.find index.idx foo
+1
+```
+
+On the OCaml side, a `Part` module exists which implements these functions:
+```ocaml
+type 'a t constraint 'a = [< `Rd | `Wr ]
+
+val create : ?len:int -> string -> unit
+val insert : [> `Rd | `Wr ] t -> string -> int -> unit
+val lookup : [> `Rd ] t -> string -> int
+```
+
+`part` is Unix dependent (and it need an **Unix named pipe**). It ensures with
+explained internal mechanisms to use multiple readers and one writer:
+- The _writer_ can take the exclusive ownership on the index file and its named
+  pipe
+- _readers_ don't need to take the ownership but they must send a signal into
+  the named pipe (to the _writer_) that they start to introspect the index
+
+For _readers_, some functions exist to signal their existence to the _write_:
+```ocaml
+val append_reader : Ipc.t -> unit
+val delete_reader : Ipc.t -> unit
+
+val ipc : _ t -> Ipc.t
+```
+ 
 ### Status: experimental
 
 This part of the distribution is **experimental** - even if the distribution
-comes with several tests to ensure that the implementation works, ROWEX is fragile!
-It still need a synchronization mechanism `fsync()` which is added pervasively in
-some parts of the code according to outcomes of errors.
+comes with several tests to ensure that the implementation works, ROWEX is
+fragile! It still need a synchronization mechanism `fsync()` which is added
+pervasively in some parts of the code according to outcomes of errors.
 
+[ART]: https://db.in.tum.de/~leis/papers/ART.pdf
+[ROWEX]: https://db.in.tum.de/~leis/papers/artsync.pdf
+[PART]: https://arxiv.org/pdf/1909.13670.pdf
 [find-bechamel]: https://dinosaure.github.io/art/bench/find.html
 [insert-bechamel]: https://dinosaure.github.io/art/bench/insert.html
 [parmap]: https://github.com/rdicosmo/parmap
