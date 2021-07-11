@@ -22,4 +22,5 @@ depends: [
   "fmt"         {>= "0.8.7"}
   "alcotest"    {with-test}
   "crowbar"     {with-test}
+  "monolith"    {with-test}
 ]

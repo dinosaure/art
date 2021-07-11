@@ -467,6 +467,8 @@ let maximum tree =
 
 let make () = ref empty_elt
 
+let is_empty v = !v == empty_elt
+
 let remove_child_n256
   : n256 record -> 'a elt ref -> 'a elt array -> char -> unit
   = fun record tree children chr ->

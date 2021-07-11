@@ -39,6 +39,10 @@ val find_opt : 'a t -> key -> 'a option
 
 val pp : 'a Fmt.t -> 'a t Fmt.t
 
+val is_empty : 'a t -> bool
+(** [is_empty tree] returns [true] if [tree] is empty. Otherwise, it returns
+   [false]. *)
+
 val minimum : 'a t -> key * 'a
 (** Return the binding with the smallest {!key} in a given tree
    or raise [Invalid_argument] if the tree is empty. *)
