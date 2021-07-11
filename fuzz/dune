@@ -1,3 +1,9 @@
 (executable
  (name fuzz)
+ (modules fuzz)
  (libraries art crowbar))
+
+(executable
+ (name monolith)
+ (modules monolith)
+ (libraries art monolith))
