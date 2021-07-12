@@ -21,11 +21,13 @@ module type INDEX = sig
   val make : unit -> t
   val insert : t -> Art.key -> int -> unit
   val find_opt : t -> Art.key -> int option
+  val is_empty : t -> bool
 end
 
 module Make (R : INDEX) (C : INDEX) = struct
   let run t fuel =
     declare "make" (unit ^> t) R.make C.make;
+    declare "is_empty" (t ^> bool) R.is_empty C.is_empty;
     declare "insert" (t ^> key ^> value ^> unit) R.insert C.insert;
     declare "find_opt" (t ^> key ^> option value) R.find_opt C.find_opt;
     main fuel
@@ -35,6 +37,7 @@ module Reference = struct
   type t = (Art.key, int) Hashtbl.t
 
   let make () = Hashtbl.create 0x100
+  let is_empty tbl = Hashtbl.length tbl = 0
   let insert tbl key value = Hashtbl.add tbl key value
   let find_opt tbl key = match Hashtbl.find tbl key with
     | v -> Some v
