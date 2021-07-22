@@ -26,6 +26,7 @@ depends: [
   "cmdliner"
   "fpath"
   "mmap"
+  "crowbar" {>= "0.2" & with-test}
 ]
 available:
   arch != "ppc64" & arch != "arm32" & arch != "arm64" & arch != "x86_32"
