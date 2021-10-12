@@ -12,7 +12,7 @@
 *)
 
 type 'a t
-(** The type of trees from type {!key} to type ['a]. *)
+(** The type of trees from type {!type:key} to type ['a]. *)
 
 type key = private string
 (** The type of the tree keys. A {i null-terminated} [string]. *)
@@ -44,12 +44,12 @@ val is_empty : 'a t -> bool
    [false]. *)
 
 val minimum : 'a t -> key * 'a
-(** Return the binding with the smallest {!key} in a given tree
+(** Return the binding with the smallest {!type:key} in a given tree
    or raise [Invalid_argument] if the tree is empty. *)
 
 val maximum : 'a t -> key * 'a
 (** Same as {!minimum}, but returns the binding with the
-   largest {!key} in the given tree. *)
+   largest {!type:key} in the given tree. *)
 
 val remove : 'a t -> key -> unit
 (** [remove t k] removes the current binding of [k] in [t].
