@@ -83,7 +83,7 @@ let size_of_string str =
 
 let () = match Sys.argv with
   | [| _; filename; |] when Sys.file_exists filename ->
-    let ipc = Fmt.strf "%s.socket" filename in
+    let ipc = Fmt.str "%s.socket" filename in
     if not (Sys.file_exists ipc)
     then Rresult.R.failwith_error_msg (Ipc.create ipc) ;
     let mmu = mmu_of_file filename in
