@@ -19,11 +19,11 @@ let insert _ file (key : Rowex.key) value =
   try Part.insert idx (key :> string) value ; `Ok 0
   with
   | Rowex.Duplicate ->
-    `Error (false, Fmt.strf "%S already exists into %a." (key :> string) Fpath.pp file)
+    `Error (false, Fmt.str "%S already exists into %a." (key :> string) Fpath.pp file)
   | exn ->
     Logs.err (fun m -> m "Got an error while inserting %S into %a: %s"
       (key :> string) Fpath.pp file (Printexc.to_string exn)) ;
-    `Error (false, Fmt.strf "Got an error while inserting %S into %a: %s"
+    `Error (false, Fmt.str "Got an error while inserting %S into %a: %s"
       (key :> string) Fpath.pp file (Printexc.to_string exn))
 
 open Cmdliner

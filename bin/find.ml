@@ -24,7 +24,7 @@ let find _ fmt file (key : Rowex.key) =
   Part.append_reader ipc ;
   try let value = Part.lookup idx (key :> string) in
       show fmt value ; `Ok 0
-  with Not_found -> `Error (false, Fmt.strf "%S does not exists." (key :> string))
+  with Not_found -> `Error (false, Fmt.str "%S does not exists." (key :> string))
 
 open Cmdliner
 

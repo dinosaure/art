@@ -19,7 +19,7 @@ let make _ file =
   with exn ->
     Logs.err (fun m -> m "Got an error while creating %a: %s"
       Fpath.pp file (Printexc.to_string exn)) ;
-    `Error (false, Fmt.strf "Got an error while creating %a."
+    `Error (false, Fmt.str "Got an error while creating %a."
       Fpath.pp file)
 
 open Cmdliner

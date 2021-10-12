@@ -11,7 +11,7 @@ let lookup = map [ key ] @@ fun k -> `Lookup k
 let action = choose [ lookup; add; ]
 let test = list1 action
 
-let failf fmt = Fmt.kstrf fail fmt
+let failf fmt = Fmt.kstr fail fmt
 type action = [ `Add of Art.key * int | `Lookup of Art.key ]
 
 let pp : action Fmt.t = fun ppf v -> match v with

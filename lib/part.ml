@@ -21,8 +21,8 @@ let create ?(len= 1_048_576) filename =
   let memory = to_memory memory in
   let brk    = size_of_word * 2 in
   atomic_set_leuintnat memory 0 Seq_cst brk ;
-  Rresult.R.failwith_error_msg (Ipc.create (Fmt.strf "%s.socket" filename)) ;
-  let ipc    = Ipc.connect (Fmt.strf "%s.socket" filename) in
+  Rresult.R.failwith_error_msg (Ipc.create (Fmt.str "%s.socket" filename)) ;
+  let ipc    = Ipc.connect (Fmt.str "%s.socket" filename) in
   let mmu    = mmu_of_memory ~write:ignore_pwrite ipc memory in
   let root   = run mmu (Persistent.ctor ()) in
   atomic_set_leuintnat memory size_of_word Seq_cst (root :> int) ;
@@ -36,7 +36,7 @@ let wr_mmu_of_file filename =
  let len = len * page_size in
  let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
  let memory = Bigarray.array1_of_genarray memory in
- let ipc = Ipc.connect (Fmt.strf "%s.socket" filename) in
+ let ipc = Ipc.connect (Fmt.str "%s.socket" filename) in
  let mmu = mmu_of_memory ~write:pwrite ipc memory in
  let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
  Unix.close fd ; MMU mmu, Addr.of_int_rdwr root
@@ -53,7 +53,7 @@ let rd_mmu_of_file filename =
   let len = len * page_size in
   let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
   let memory = Bigarray.array1_of_genarray memory in
-  let ipc = Ipc.connect (Fmt.strf "%s.socket" filename) in
+  let ipc = Ipc.connect (Fmt.str "%s.socket" filename) in
   let mmu = mmu_of_memory ~write:pwrite ipc memory in
   let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
   Unix.close fd ; append_reader ipc ; MMU mmu, Addr.of_int_rdonly root
@@ -69,7 +69,7 @@ let unsafe_mmu_of_file filename =
   let len = len * page_size in
   let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
   let memory = Bigarray.array1_of_genarray memory in
-  let ipc = Ipc.connect (Fmt.strf "%s.socket" filename) in
+  let ipc = Ipc.connect (Fmt.str "%s.socket" filename) in
   let mmu = mmu_of_memory ~write:ignore_pwrite ipc memory in
   let root = atomic_get_leuintnat (memory_of_mmu mmu) size_of_word Seq_cst in
   Unix.close fd ; MMU mmu, Addr.of_int_rdwr root

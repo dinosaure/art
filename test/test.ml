@@ -436,7 +436,7 @@ module Caml_test = struct
       Fmt.pr ">>> remove %S.\n%!" (k :> string) ;
       Art.remove tree k ; map := Map.remove k !map done ;
     Fmt.pr "map: @[<hov>%a@].\n%!"
-      Fmt.(Dump.iter_bindings Map.iter (always "map") (using (fun (x:Art.key) -> (x :> string)) (fmt "%S")) int) !map ;
+      Fmt.(Dump.iter_bindings Map.iter (any "map") (using (fun (x:Art.key) -> (x :> string)) (fmt "%S")) int) !map ;
     Fmt.pr "art: @[<hov>%a@].\n%!"
       (Art.pp Fmt.int) tree ;
     Alcotest.(check bool) "incl_mt" (incl_mt !map tree) true ;
