@@ -14,13 +14,19 @@ let reporter ppf =
     msgf @@ fun ?header ?tags fmt -> with_metadata header tags k ppf fmt in
   { Logs.report }
 
-let make _ file =
-  try Part.create (Fpath.to_string file) ; `Ok 0
-  with exn ->
+let make _ path =
+  let th0 =
+    let open Part in
+    create (Fpath.to_string path) in
+  match Part.(run closed th0) with
+  | _closed, Ok () -> `Ok 0
+  | _closed, Error (`Msg err) ->
+    `Error (false, Fmt.str "%s." err)
+  | exception exn ->
     Logs.err (fun m -> m "Got an error while creating %a: %s"
-      Fpath.pp file (Printexc.to_string exn)) ;
+      Fpath.pp path (Printexc.to_string exn)) ;
     `Error (false, Fmt.str "Got an error while creating %a."
-      Fpath.pp file)
+      Fpath.pp path)
 
 open Cmdliner
 

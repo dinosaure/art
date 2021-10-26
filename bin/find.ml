@@ -18,13 +18,19 @@ type fmt = Fmt : string * (int -> unit, Format.formatter, unit) format -> fmt
 
 let show (Fmt (_, fmt)) v = Fmt.pr fmt v
 
-let find _ fmt file (key : Rowex.key) =
-  let idx = Part.rd_mmu_of_file (Fpath.to_string file) in
-  let ipc = Part.ipc idx in
-  Part.append_reader ipc ;
-  try let value = Part.lookup idx (key :> string) in
-      show fmt value ; `Ok 0
-  with Not_found -> `Error (false, Fmt.str "%S does not exists." (key :> string))
+let find _ fmt path (key : Rowex.key) =
+  let uid = Unix.getpid () in
+  let uid = Int64.of_int uid in
+  let th0 =
+    let open Part in
+    let* () = open_index (reader uid) ~path:(Fpath.to_string path) in
+    let* result = find key in
+    let* () = close in
+    return result in
+  match Part.(run closed th0) with
+  | _closed, value -> show fmt value ; `Ok 0
+  | exception Not_found ->
+    `Error (false, Fmt.str "%S does not exists." (key :> string))
 
 open Cmdliner
 

@@ -18,52 +18,73 @@ let () = Fmt_tty.setup_std_outputs ~style_renderer:`Ansi_tty ~utf_8:true ()
 let () = Logs.set_reporter (reporter Fmt.stdout)
 let () = Logs.set_level ~all:true (Some Logs.Debug)
 
-type memory = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+let insert state key value =
+  let th0 =
+    let open Part in
+    insert key value in
+  match Part.run state th0 with
+  | state, () -> state
+  | exception Rowex.Duplicate ->
+    Fmt.pr "# %S already exists.\n%!" (key :> string) ;
+    state
 
-let identity x = x
-let empty = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0
+let lookup state key =
+  let th0 =
+    let open Part in
+    find key in
+  match Part.run state th0 with
+  | state, value ->
+    Fmt.pr "> %S => %10d.\n%!" (key :> string) value ;
+    state
+  | exception Not_found ->
+    Fmt.pr "> %S does not exists.\n%!" (key :> string) ;
+    state
 
-external get_page_size
-  : unit -> int
-  = "caml_getpagesize" [@@noalloc]
+let parse_key key =
+  try Ok (Rowex.key key) with _ -> Error `Invalid_key
 
-let page_size = get_page_size ()
+let parse_value value =
+  try Ok (int_of_string value) with _ -> Error `Invalid_value
 
-let mmu_of_file filename = Part.unsafe_mmu_of_file filename
-
-let read_eval_print_loop mmu =
-  let rec loop mmu =
-    Format.printf ": %!" ;
+let read_eval_print_loop path =
+  let rec loop state =
+    Fmt.pr ": %!" ;
     match Astring.String.cuts ~sep:" " (input_line stdin) with
     | [ "insert"; key; value; ] ->
-      ( try let value = int_of_string value in
-            Part.insert mmu key value
-        with exn ->
-          Format.printf "# %s.\n%!" (Printexc.to_string exn) ;
-          Printexc.print_backtrace stdout ;
-          Format.printf "> Invalid key or value: %S -> %S.\n%!" key value ;
-          loop mmu )
+      ( match parse_key key, parse_value value with
+      | Ok key, Ok value ->
+        let state = insert state key value in
+        loop state
+      | Error _, _ ->
+        Fmt.pr "# Invalid key %S.\n%!" key ;
+        loop state
+      | _, Error _ ->
+        Fmt.pr "# Invalid value %S.\n%!" value ;
+        loop state )
     | [ "lookup"; key; ] ->
-      ( try let value = Part.lookup mmu key in
-          Format.printf "> %S => %10d.\n%!" key (value :> int) ;
-          loop mmu
-        with
-        | Not_found ->
-           Format.printf "> %S does not exists.\n%!" key ;
-           loop mmu
-        | Invalid_argument _ ->
-           Format.printf "> Invalid key %S.\n%!" key ;
-           loop mmu )
-    | [ "quit" ] -> ()
+      ( match parse_key key with
+      | Ok key -> lookup state key |> loop
+      | Error _ ->
+        Fmt.pr "# Invalid key %S.\n%!" key ;
+        loop state )
+    | [ "quit" ] -> Part.run state Part.close
     | vs ->
-      Format.printf "> Invalid command: %S.\n%!" (String.concat " " vs) ;
-      loop mmu
-    | exception End_of_file -> () in
-  loop mmu
+      Fmt.pr "> Invalid command: %S.\n%!" (String.concat " " vs) ;
+      loop state
+    | exception End_of_file -> Part.run state Part.close in
+  let th0 = Part.(open_index writer ~path) in
+  let state, () = Part.(run closed th0) in
+  let _closed = loop state in
+  ()
 
-let size_of_word = Sys.word_size / 8
-
-let create filename len = Part.create ~len filename
+let create path len =
+  let th0 =
+    let open Part in
+    create ~len path in
+  match Part.(run closed th0) with
+  | _closed, Ok () -> ()
+  | _closed, Error (`Msg err) ->
+    Fmt.epr "%s." err
 
 (* XXX(dinosaure): hard-part, see [coreutils/dd.c] or [xstrtoumax]. *)
 let size_of_string str =
@@ -82,13 +103,9 @@ let size_of_string str =
     a * m
 
 let () = match Sys.argv with
-  | [| _; filename; |] when Sys.file_exists filename ->
-    let ipc = Fmt.str "%s.socket" filename in
-    if not (Sys.file_exists ipc)
-    then Rresult.R.failwith_error_msg (Ipc.create ipc) ;
-    let mmu = mmu_of_file filename in
-    read_eval_print_loop mmu
-  | [| _; "create"; len; filename |] ->
+  | [| _; path; |] when Sys.file_exists path ->
+    read_eval_print_loop path
+  | [| _; "create"; len; path |] ->
     let len = size_of_string len in
-    let _ = create filename len in ()
+    create path len
   | _ -> Format.eprintf "%s [create <len>] <filename>\n%!" Sys.argv.(0)

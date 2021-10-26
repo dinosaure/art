@@ -10,3 +10,11 @@
  (name sse)
  (modules sse)
  (libraries dune-configurator))
+
+(executable
+ (name flush)
+ (modules flush)
+ (foreign_stubs
+  (language c)
+  (names cpu))
+ (libraries dune-configurator))
