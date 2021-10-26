@@ -338,7 +338,7 @@ caml_persist(value memory, value addr, value len)
   sfence();
   return Val_unit ;
 }
-#elif ART_CLFLUSH
+#else /* #elif ART_CLFLUSH? */
 void clflush(const void *ptr) {
   asm volatile ("clflush %0" : "+m" (ptr));
 }
@@ -362,8 +362,6 @@ caml_persist(value memory, value addr, value len)
   mfence();
   return Val_unit ;
 }
-#else
-#error Unsupported platform
 #endif
 
 #include <caml/alloc.h>
