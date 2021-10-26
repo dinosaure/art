@@ -122,6 +122,14 @@ let leint31_to_string v =
       and 'a t = 'a tree option
    ]} *)
 
+type 'a rd = < rd : unit; .. > as 'a
+type 'a wr = < wr : unit; .. > as 'a
+
+type ro = < rd : unit; >
+type wo = < wr : unit; >
+
+type rdwr = < rd : unit; wr : unit; >
+
 module rec Leaf : sig
   type t [@@immediate]
 
@@ -135,19 +143,19 @@ end = struct
 end
 
 and Addr : sig
-  type 'a t = private int constraint 'a = [< `Rd | `Wr ] [@@immediate]
+  type 'a t = private int
 
   val length : int
 
-  val null : [ `Rd ] t
+  val null : ro t
   val is_null : 'a t -> bool
 
-  external of_int_rdonly : int -> [ `Rd ] t = "%identity"
-  external of_int_wronly : int -> [ `Wr ] t = "%identity"
-  external of_int_rdwr : int -> [ `Rd | `Wr ] t = "%identity"
+  external of_int_to_rdonly : int -> ro t = "%identity"
+  external of_int_to_wronly : int -> wo t = "%identity"
+  external of_int_to_rdwr : int -> rdwr t = "%identity"
 
-  external to_wronly : [> `Wr ] t -> [ `Wr ] t = "%identity"
-  external to_rdonly : [> `Rd ] t -> [ `Rd ] t = "%identity"
+  external to_wronly : 'a wr t -> wo t = "%identity"
+  external to_rdonly : 'a rd t -> ro t = "%identity"
 
   external unsafe_to_leaf : 'a t -> Leaf.t = "%identity"
   external unsafe_of_leaf : Leaf.t -> 'a t = "%identity"
@@ -155,19 +163,19 @@ and Addr : sig
 
   val ( + ) : 'a t -> int -> 'a t
 end = struct
-  type 'a t = int constraint 'a = [< `Rd | `Wr ]
+  type 'a t = int
 
   let length = Sys.word_size / 8
 
   let null = 1 lsl (Sys.word_size - 2)
   let is_null x = x = null [@@inline always]
 
-  external of_int_rdonly : int -> [ `Rd ] t = "%identity"
-  external of_int_wronly : int -> [ `Wr ] t = "%identity"
-  external of_int_rdwr : int -> [ `Rd | `Wr ] t = "%identity"
+  external of_int_to_rdonly : int -> ro t = "%identity"
+  external of_int_to_wronly : int -> wo t = "%identity"
+  external of_int_to_rdwr : int -> rdwr t = "%identity"
 
-  external to_wronly : [> `Wr ] t -> [ `Wr ] t = "%identity"
-  external to_rdonly : [> `Rd ] t -> [ `Rd ] t = "%identity"
+  external to_wronly : 'a wr t -> wo t = "%identity"
+  external to_rdonly : 'a rd t -> ro t = "%identity"
 
   external unsafe_to_leaf : 'a t -> Leaf.t = "%identity"
   external unsafe_of_leaf : Leaf.t -> 'a t = "%identity"
@@ -179,24 +187,19 @@ end
 let string_of_null_addr = leintnat_to_string (Addr.null :> int)
 
 type ('c, 'a) value =
-  | Int8     : ([ `Atomic ], int) value
-  | LEInt    : ([ `Atomic ], int) value
-  | LEInt16  : ([ `Atomic ], int) value
-  | LEInt31  : ([ `Atomic ], int) value
-  | LEInt64  : ([ `Atomic ], int64) value
-  | LEInt128 : ([ `Atomic ], string) value
+  | Int8     : (atomic, int) value
+  | LEInt    : (atomic, int) value
+  | LEInt16  : (atomic, int) value
+  | LEInt31  : (atomic, int) value
+  | LEInt64  : (atomic, int64) value
+  | LEInt128 : (atomic, string) value
   (* XXX(dinosaure): a Int128 does not exist in OCaml, so we load it into a
-       simple (big-endian) [string]. However, the access to the value must
+       simple (little-endian) [string]. However, the access to the value must
        be atomic and be saved into a string then. *)
-  | Addr_rd  : ([ `Atomic ], [ `Rd ] Addr.t) value
-  | C_string : ([ `Non_atomic ], string) value
-
-type 'c memory_order =
-  | Relaxed : [< `Rd | `Wr ] memory_order
-  | Seq_cst : [< `Rd | `Wr ] memory_order
-  | Release : [< `Wr ] memory_order
-  | Acq_rel : [< `Wr | `Rd ] memory_order
-  | Acquire : [< `Rd ] memory_order
+  | Addr_rd  : (atomic, ro Addr.t) value
+  | C_string : (non_atomic, string) value
+and atomic = Atomic
+and non_atomic = Non_atomic
 
 module type S = sig
   type 'a t
@@ -204,80 +207,27 @@ module type S = sig
   val bind : 'a t -> ('a -> 'b t) -> 'b t
   val return : 'a -> 'a t
 
-  val atomic_get : ?memory_order:[< `Rd ] memory_order -> [> `Rd ] Addr.t ->
-    ([ `Atomic ], 'a) value -> 'a t
-  val atomic_set : ?memory_order:[< `Wr ] memory_order -> [> `Wr ] Addr.t ->
-    ([ `Atomic ], 'a) value -> 'a -> unit t
-  val fetch_add  : ?memory_order:[< `Rd | `Wr ] memory_order ->
-    [> `Rd | `Wr ] Addr.t -> ([ `Atomic ], int) value -> int -> int t
-  val fetch_or   : ?memory_order:[< `Rd | `Wr ] memory_order ->
-    [> `Rd | `Wr ] Addr.t -> ([ `Atomic ], int) value -> int -> int t
-  val fetch_sub  : ?memory_order:[< `Rd | `Wr ] memory_order ->
-    [> `Rd | `Wr ] Addr.t -> ([ `Atomic ], int) value -> int -> int t
+  val atomic_get : 'a rd Addr.t -> (atomic, 'v) value -> 'v t
+  val atomic_set : 'a wr Addr.t -> (atomic, 'v) value -> 'v -> unit t
+  val persist : 'a wr Addr.t -> len:int -> unit t
 
-  val compare_exchange :
-    ?m0:[< `Rd | `Wr ] memory_order ->
-    ?m1:[< `Rd | `Wr ] memory_order ->
-    ?weak:bool ->
-    [> `Rd | `Wr ] Addr.t ->
-    ([ `Atomic ], 'a) value ->
-    'a ref -> 'a -> bool t
+  val fetch_add  : rdwr Addr.t -> (atomic, int) value -> int -> int t
+  val fetch_or   : rdwr Addr.t -> (atomic, int) value -> int -> int t
+  val fetch_sub  : rdwr Addr.t -> (atomic, int) value -> int -> int t
 
+  val compare_exchange : ?weak:bool -> rdwr Addr.t -> (atomic, 'a) value -> 'a Atomic.t -> 'a -> bool t
   val pause_intrinsic : unit t
 
-  val get : [> `Rd ] Addr.t -> ('c, 'a) value -> 'a t
+  val get : 'a rd Addr.t -> ('t, 'v) value -> 'v t
 
-  val allocate : kind:[ `Leaf | `Node ] -> ?len:int -> string list ->
-    [ `Rd | `Wr ] Addr.t t
+  val allocate : kind:[ `Leaf | `Node ] -> ?len:int -> string list -> rdwr Addr.t t
   val delete : _ Addr.t -> int -> unit t
   val collect : _ Addr.t -> len:int -> uid:int -> unit t
-
-  val rdtsc : int t
-
-  val clflush : [ `Wr ] Addr.t -> unit t
-  val sfence : unit t
-
-  val stream_int : [ `Wr ] Addr.t -> int -> unit t
-  (* XXX(dinosaure): [stream_*] means that we store the integer at the given
-     address using a _non-temporal hint_ to minimize cache pollution. Such
-     usage is to ensure that what we want to write is really written and it is
-     not cached. [stream_*] uses the cache **only** if the given [addr] is in
-     the cache. In our context, [stream_*] is used with [clflush] to ensure
-     a real write.
-
-     TODO(dinosaure): abstract it (as [atomic_{get,set}])? However, we should
-     use such operation ONLY for address. *)
 end
-
-(*
-type 'a t =
-  | Atomic_get : [< `Rd ] memory_order * [> `Rd ] Addr.t * ([ `Atomic ], 'a) value -> 'a t
-  | Atomic_set : [< `Wr ] memory_order * [> `Wr ] Addr.t * ([ `Atomic ], 'a) value * 'a -> unit t
-  | Fetch_add  : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
-  | Fetch_or   : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
-  | Fetch_sub  : [< `Rd | `Wr ] memory_order * [> `Rd | `Wr ] Addr.t * ([ `Atomic ], int) value * int -> int t
-  | Pause_intrinsic : unit t
-  | Compare_exchange : [> `Rd | `Wr ] Addr.t *
-                       ([ `Atomic ], 'a) value * 'a ref * 'a * bool * [< `Rd | `Wr ] memory_order
-                       * [< `Rd | `Wr ] memory_order -> bool t
-  | Get : [> `Rd ] Addr.t * ('c, 'a) value -> 'a t
-  | Allocate : [ `Node | `Leaf ] * string list * int -> [ `Rd | `Wr ] Addr.t t
-  | Delete : _ Addr.t * int -> unit t
-  | Collect : _ Addr.t * int * int -> unit t
-  | Bind : 'a t * ('a -> 'b t) -> 'b t
-  | Return : 'a -> 'a t
-*)
 
 type 'a fmt = Format.formatter -> 'a -> unit
 
 let pf ppf fmt = Format.fprintf ppf fmt
-
-let pp_memory_order : type a. a memory_order fmt = fun ppf -> function
-  | Seq_cst -> pf ppf "seq_cst"
-  | Release -> pf ppf "release"
-  | Relaxed -> pf ppf "relaxed"
-  | Acq_rel -> pf ppf "acquire-release"
-  | Acquire -> pf ppf "acquire"
 
 let pp_value : type c a. (c, a) value fmt = fun ppf -> function
   | LEInt -> pf ppf "leintnat"
@@ -301,42 +251,6 @@ let pp_of_value : type c a. (c, a) value -> a fmt = function
   | Addr_rd -> fun ppf addr -> pf ppf "%016x" (addr :> int)
   | C_string -> fmt "%S"
 
-(*
-let pp : type a. a t fmt = fun ppf -> function
-  | Atomic_get (m, addr, v) ->
-     pf ppf "atomic_get %016x %a : %a" (addr :> int) pp_memory_order m pp_value v
-  | Atomic_set (m, addr, v, x) ->
-     pf ppf "atomic_set %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
-  | Fetch_add (m, addr, v, x) ->
-     pf ppf "fetch_add  %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
-  | Fetch_or (m, addr, v, x) ->
-     pf ppf "fetch_or   %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
-  | Fetch_sub (m, addr, v, x) ->
-     pf ppf "fetch_sub  %016x %a (%a : %a)" (addr :> int) pp_memory_order m (pp_of_value v) x pp_value v
-  | Collect (addr, len, uid) ->
-     pf ppf "collect    %016x %d %d" (addr :> int) len uid
-  | Delete (addr, len) ->
-     pf ppf "delete     %016x %d" (addr :> int) len
-  | Get (addr, v) ->
-     pf ppf "get        %016x         : %a" (addr :> int) pp_value v
-  | Allocate (`Node, _, len) ->
-     pf ppf "allocate %3d (node)" len
-  | Allocate (`Leaf, _, len) ->
-     pf ppf "allocate %3d (leaf)" len
-  | Pause_intrinsic ->
-     pf ppf "pause_intrinsic"
-  | Compare_exchange (addr, v, x, y, weak, m0, m1) ->
-    pf ppf "compare_exchange weak:%b %016x %a %a (%a : %a) (%a : %a)" weak (addr :> int)
-       pp_memory_order m0
-       pp_memory_order m1
-       (pp_of_value v) !x pp_value v
-       (pp_of_value v) y pp_value v
-  | Bind (Allocate (_, _, len), _) ->
-     pf ppf "allocate %d byte(s) >>= fun _ ->" len
-  | Bind _ -> pf ppf ">>="
-  | Return _ -> pf ppf "return *"
-*)
-
 module Value = struct
   let int8 = Int8
   let leint16 = LEInt16
@@ -352,40 +266,7 @@ let _cache_line_size = 64
 let _write_latency_in_ns = 0
 let _cpu_freq_mhz = 2100
 
-(*
-let ( let* ) x f = Bind (x, f)
-
-let return x = Return x
-
-let get addr value = Get (addr, value)
-
-let atomic_get ?(memory_order= Seq_cst) addr k = Atomic_get (memory_order, addr, k)
-
-let atomic_set ?(memory_order= Seq_cst) addr k v = Atomic_set (memory_order, addr, k, v)
-
-let fetch_add  ?(memory_order= Seq_cst) addr k n = Fetch_add (memory_order, addr, k, n)
-let fetch_or   ?(memory_order= Seq_cst) addr k n = Fetch_or  (memory_order, addr, k, n)
-let fetch_sub  ?(memory_order= Seq_cst) addr k n = Fetch_sub (memory_order, addr, k, n)
-
-let compare_exchange ?(m0= Seq_cst) ?(m1= Seq_cst) ?(weak= false) addr k expected desired =
-  Compare_exchange (addr, k, expected, desired, weak, m0, m1)
-
-let pause_intrinsic = Pause_intrinsic
-*)
-
 let ( <.> ) f g = fun x -> f (g x)
-
-(*
-let allocate ~kind ?len payloads =
-  let len = match len with
-    | Some len -> len
-    | None -> List.fold_right (( + ) <.> String.length) payloads 0 in
-  Allocate (kind, payloads, len)
-
-let delete addr len = Delete (addr, len)
-
-let collect addr len uid = Collect (addr, len, uid)
-*)
 
 let _prefix = 4
 let _header_prefix = 0
@@ -463,53 +344,15 @@ module Make (S : S) = struct
 
   open S
 
-  let _pause etsc =
-    let* ctsc = rdtsc in
-    if ctsc < etsc then pause_intrinsic
-    else return ()
-
-  let rec _clflush addr len =
-    let* etsc = rdtsc in
-    let etsc = etsc + (_write_latency_in_ns * _cpu_freq_mhz / 1000) in
-    let* () = clflush addr in
-    let* () = _pause etsc in
-    if len - _cache_line_size > 0
-    then _clflush Addr.(addr + _cache_line_size) (len - _cache_line_size)
-    else return ()
-
-  let clflush (addr : [ `Rd | `Wr ] Addr.t) len front back =
-    let addr = (addr :> int) land (lnot (_cache_line_size - 1)) in
-    let* () = if front then sfence else return () in
-    let* () = _clflush (Addr.of_int_wronly addr) len in
-    let* () = if back then sfence else return () in
-    return ()
-
-  let movnt64 dst value front back =
-    let* () = if front then sfence else return () in
-    let* () = stream_int dst value in
-    let* () = if back then sfence else return () in
-    return ()
-
-(* XXX(dinosaure): impossible by the type-system. *)
-(* let _ = atomic_get ~memory_order:Release (Addr.of_int_rdonly 0) Value.int8
-   [Release] is only used to [store]/[set]. *)
-  (* let _ = atomic_set (Addr.of_int_rdonly 0) Value.int8 0
-     Impossible to set a read-only value. *)
-  (* let _ = atomic_get (Addr.of_int_wronly 0) Value.int8
-     Impossible to get a write-only value. *)
-  (* let _ = atomic_get (Addr.of_int_rdonly 0) Value.(string 10)
-     Impossible to load atomically a non-atomic value *)
-
   let get_version addr =
     atomic_get Addr.(addr + _header_kind) Value.leintnat [@@inline]
 
   let get_type addr =
-    let* value = atomic_get ~memory_order:Relaxed Addr.(addr + _header_kind)
-        Value.leintnat in
+    let* value = atomic_get Addr.(addr + _header_kind) Value.leintnat in
     return (value lsr _bits_kind)
   [@@inline]
 
-  let get_prefix (addr : [> `Rd ] Addr.t) =
+  let get_prefix (addr : _ rd Addr.t) =
     (* XXX(dinosaure): may be we can optimize this part with [Value.leintnat]
        for a 64-bits architecture. However, we assume that 1 bit will disappear.
        Considering little-endian architecture, we probably should start with
@@ -538,17 +381,15 @@ module Make (S : S) = struct
 
   let set_prefix addr ~prefix ~prefix_count flush =
     if prefix_count = 0
-    then atomic_set ~memory_order:Release Addr.(addr + _header_prefix)
-        Value.leint64 0L
+    then atomic_set Addr.(addr + _header_prefix) Value.leint64 0L
     else
       let p0 = string_get16 prefix 0 in
       let p1 = string_get16 prefix 2 in
       let prefix = Int64.(logor (shift_left (of_int p1) 16) (of_int p0)) in
       let rs = Int64.(logor (shift_left (of_int prefix_count) 32) prefix) in
-      atomic_set ~memory_order:Release Addr.(addr + _header_prefix)
-        Value.leint64 rs >>= fun () ->
+      atomic_set Addr.(addr + _header_prefix) Value.leint64 rs >>= fun () ->
     if flush
-    then clflush Addr.(addr + _header_prefix) 8 false true
+    then persist Addr.(addr + _header_prefix) ~len:8
     else return ()
 
   (**** FIND CHILD ****)
@@ -619,7 +460,7 @@ module Make (S : S) = struct
   let rec _node_any_child addr ~header child idx max =
     if idx = max then return child
     else
-      let* child' : [ `Rd ] Addr.t = atomic_get
+      let* child' : ro Addr.t = atomic_get
           Addr.(addr + _header_length + header + (idx * Addr.length))
           Value.addr_rd in
       if (child' :> int) land 1 = 1 then return child'
@@ -727,7 +568,7 @@ module Make (S : S) = struct
     let* () = fprintf ppf "@]|]" in
     return ()
 
-  and pp_elt ppf (addr : [ `Rd ] Addr.t) =
+  and pp_elt ppf (addr : ro Addr.t) =
     if Addr.is_null addr then fprintf ppf "<null>"
     else if (addr :> int) land 1 = 1
     then
@@ -750,10 +591,10 @@ module Make (S : S) = struct
       let* () = fprintf ppf "@];@] }" in
       return ()
 
-  let pp ppf (root : [> `Rd ] Addr.t) =
+  let pp ppf (root : _ rd Addr.t) =
     pp_elt ppf (Addr.to_rdonly root)
 
-  let any_child (addr : [> `Rd] Addr.t) =
+  let any_child (addr : _ rd Addr.t) =
     let* ty = get_type addr in
     match ty with
     | 0 -> n4_any_child addr
@@ -763,15 +604,15 @@ module Make (S : S) = struct
     | _ -> assert false
 
   let rec minimum
-    : [ `Rd ] Addr.t -> [ `Rd ] Addr.t t
+    : ro Addr.t -> ro Addr.t t
     = fun addr ->
     if (addr :> int) land 1 = 1 then return addr
     else let* addr = any_child addr in minimum addr
 
-  let minimum (addr : [> `Rd ] Addr.t) = minimum (Addr.to_rdonly addr)
+  let minimum (addr : _ rd Addr.t) = minimum (Addr.to_rdonly addr)
   [@@inline]
 
-  let find_child (addr : [> `Rd ] Addr.t) chr =
+  let find_child (addr : _ rd Addr.t) chr =
     let k = Char.code chr in
     let* ty = get_type addr in
     Log.debug (fun m -> m "find_child node %c" chr) ;
@@ -803,7 +644,7 @@ module Make (S : S) = struct
      it returns the new value of the level.
   *)
 
-  let check_prefix (addr : [> `Rd ] Addr.t) ~key ~key_len level =
+  let check_prefix (addr : _ rd Addr.t) ~key ~key_len level =
     let* depth = get Addr.(addr + _header_depth) Value.leint31 in
     if key_len < depth
     then raise Not_found (* XXX(dinosaure): we miss something! *)
@@ -909,7 +750,7 @@ module Make (S : S) = struct
       else _check_prefix_pessimistic
           ~key ~minimum ~prefix ~prefix_count ~level:(succ level) (succ idx) max
 
-  let check_prefix_pessimistic (addr : [> `Rd ] Addr.t) ~key level =
+  let check_prefix_pessimistic (addr : _ rd Addr.t) ~key level =
     let* prefix, prefix_count = get_prefix addr in
     Log.debug (fun m -> m "prefix: %S, prefix-count: %d." prefix prefix_count) ;
     let* depth = get Addr.(addr + _header_depth) Value.leint31 in
@@ -931,7 +772,7 @@ module Make (S : S) = struct
            an other [level] value. *)
 
   let rec _lookup
-      (node : [> `Rd ] Addr.t) ~key ~key_len ~optimistic_match level =
+      (node : _ rd Addr.t) ~key ~key_len ~optimistic_match level =
     let* res = check_prefix node ~key ~key_len level in
     let optimistic_match = if res > 0 then true else optimistic_match in
     let level = level + (abs res) in
@@ -956,10 +797,10 @@ module Make (S : S) = struct
     else _lookup node ~key ~key_len ~optimistic_match (succ level)
 
   let lookup
-    : [> `Rd ] Addr.t -> key:string -> key_len:int -> int t
-    = fun (node : ([> `Rd ] as 'a) Addr.t) ~key ~key_len ->
+    : _ rd Addr.t -> key:string -> key_len:int -> int t
+    = fun (node : _ rd Addr.t) ~key ~key_len ->
     let node = Addr.unsafe_to_int node in
-    let node = Addr.of_int_rdonly node in
+    let node = Addr.of_int_to_rdonly node in
     _lookup node ~key ~key_len ~optimistic_match:false 0
 
   let find addr key =
@@ -972,10 +813,10 @@ module Make (S : S) = struct
   type zero = Z
 
   type 'a node =
-    | N4   : [ `Rd | `Wr ] Addr.t -> zero node
-    | N16  : [ `Rd | `Wr ] Addr.t -> zero succ node
-    | N48  : [ `Rd | `Wr ] Addr.t -> zero succ succ node
-    | N256 : [ `Rd | `Wr ] Addr.t -> zero succ succ succ node
+    | N4   : rdwr Addr.t -> zero node
+    | N16  : rdwr Addr.t -> zero succ node
+    | N48  : rdwr Addr.t -> zero succ succ node
+    | N256 : rdwr Addr.t -> zero succ succ succ node
 
   [@@@warning "+37"]
 
@@ -994,18 +835,19 @@ module Make (S : S) = struct
      However, it appears that in some situation, we need to execute [clflush]
      and [movnt64] to ensure a synchro between readers and writers. *)
 
-  let add_child_n256 (N256 addr) k (value : [ `Rd ] Addr.t) flush =
+  let add_child_n256 (N256 addr) k (value : ro Addr.t) flush =
     if flush
     then
-      let* () = movnt64
+      let* () = atomic_set
           Addr.(to_wronly (addr + _header_length + (k * Addr.length)))
-          (value :> int) false true in
+          Value.addr_rd value in
+      let* () = persist Addr.(to_wronly (addr + _header_length + (k * Addr.length))) ~len:8 in
       let* _  = fetch_add
           Addr.(addr + _header_count)
           Value.leint16 1 in
       return true
     else
-      let* () = atomic_set ~memory_order:Relaxed
+      let* () = atomic_set
           Addr.(addr + _header_length + (k * Addr.length))
           Value.addr_rd value in
       let* _  = fetch_add
@@ -1020,10 +862,10 @@ module Make (S : S) = struct
     if compact_count = 48
     then return false
     else
-      let* () = atomic_set ~memory_order:Release
+      let* () = atomic_set
           Addr.(addr + _header_length + 256 + (compact_count * Addr.length))
           Value.addr_rd value in
-      let* () = atomic_set ~memory_order:Release
+      let* () = atomic_set
           Addr.(addr + _header_length + k)
           Value.int8 compact_count in
       let* _  = fetch_add
@@ -1034,7 +876,7 @@ module Make (S : S) = struct
           Value.leint16 1 in
       return true
 
-  let add_child_n16 (N16 addr) k (value : [ `Rd ] Addr.t) flush =
+  let add_child_n16 (N16 addr) k (value : ro Addr.t) flush =
     let* compact_count =
       atomic_get Addr.(addr + _header_compact_count) Value.leint16 in
     if compact_count = 16
@@ -1048,26 +890,31 @@ module Make (S : S) = struct
           Value.leint16 1 in
       if flush
       then
-        let* () = atomic_set ~memory_order:Release
+        let* () = atomic_set
             Addr.(addr + _header_length + compact_count)
             Value.int8 (k lxor 128) in
-        let* () = clflush addr Addr.length false true in
-        let* () = movnt64
+        let* () = persist addr ~len:8 in
+        let* () = atomic_set
             Addr.(to_wronly
                     (addr + _header_length + 16
                      + (compact_count * Addr.length)))
-            (value :> int) false true in
+            Value.addr_rd value in
+        let* () = persist
+            Addr.(to_wronly
+                    (addr + _header_length + 16
+                     + (compact_count * Addr.length)))
+            ~len:Addr.length in
         return true
       else
-        let* () = atomic_set ~memory_order:Relaxed
+        let* () = atomic_set
             Addr.(addr + _header_length + compact_count)
             Value.int8 (k lxor 128) in
-        let* () = atomic_set ~memory_order:Relaxed
+        let* () = atomic_set
             Addr.(addr + _header_length + 16 + (compact_count * Addr.length))
             Value.addr_rd value in
         return true
 
-  let add_child_n4 (N4 addr) k (value : [ `Rd ] Addr.t) flush =
+  let add_child_n4 (N4 addr) k (value : ro Addr.t) flush =
     let* compact_count =
       atomic_get Addr.(addr + _header_compact_count) Value.leint16 in
     if compact_count = 4
@@ -1081,20 +928,24 @@ module Make (S : S) = struct
           Value.leint16 1 in
       if flush
       then
-        let* () = atomic_set ~memory_order:Release
+        let* () = atomic_set
             Addr.(addr + _header_length + compact_count)
             Value.int8 k in
-        let* () = clflush addr _sizeof_n4 false true in
-        let* () = movnt64
+        let* () = persist addr ~len:_sizeof_n4 in
+        let* () = atomic_set
             Addr.(to_wronly (addr + _header_length + 4
                              + (compact_count * Addr.length)))
-            (value :> int) false true in
+            Value.addr_rd value in
+        let* () = persist
+            Addr.(to_wronly (addr + _header_length + 4
+                             + (compact_count * Addr.length)))
+            ~len:Addr.length in
         return true
       else
-        let* () = atomic_set ~memory_order:Relaxed
+        let* () = atomic_set
             Addr.(addr + _header_length + compact_count)
             Value.int8 k in
-        let* () = atomic_set ~memory_order:Relaxed
+        let* () = atomic_set
             Addr.(addr + _header_length + 4 + (compact_count * Addr.length))
             Value.addr_rd value in
         return true
@@ -1132,7 +983,7 @@ module Make (S : S) = struct
     then ( need_to_restart := true ; return () )
     else
       let* res = compare_exchange ~weak:true Addr.(addr + _header_kind)
-          Value.leintnat (ref version) (version + 0b10) in
+          Value.leintnat (Atomic.make version) (version + 0b10) in
       if not res then write_lock_or_restart addr need_to_restart else return ()
   [@@inline]
 
@@ -1141,7 +992,7 @@ module Make (S : S) = struct
     then ( need_to_restart := true ; return version)
     else
       let* set = compare_exchange Addr.(addr + _header_kind)
-          Value.leintnat (ref version) (version + 0b10) in
+          Value.leintnat (Atomic.make version) (version + 0b10) in
       if set then return (version + 0b10)
       else ( need_to_restart := true ; return version )
 
@@ -1191,16 +1042,16 @@ module Make (S : S) = struct
 
   let n16_update_child addr k ptr =
     let* addr = _n16_child_pos addr k in
-    let addr = Addr.of_int_wronly (addr :> int) in (* XXX(dinosaure): unsafe! *)
-    atomic_set ~memory_order:Release addr Value.addr_rd ptr
+    let addr = Addr.of_int_to_wronly (addr :> int) in (* XXX(dinosaure): unsafe! *)
+    atomic_set addr Value.addr_rd ptr
 
   let n48_update_child addr k ptr =
     let* idx = atomic_get Addr.(addr + _header_length + k) Value.int8 in
-    atomic_set ~memory_order:Release
+    atomic_set
       Addr.(addr + _header_length + 256 + (idx * Addr.length)) Value.addr_rd ptr
 
   let n256_update_child addr k ptr =
-    atomic_set ~memory_order:Release
+    atomic_set
       Addr.(addr + _header_length + (k * Addr.length)) Value.addr_rd ptr
 
   let update_child addr k ptr =
@@ -1415,7 +1266,7 @@ module Make (S : S) = struct
                    (_header_length + 16 + (Addr.length * 16)) in
                write_unlock addr )
         else
-          let* () = clflush addr' _sizeof_n16 false true in
+          let* () = persist addr' ~len:_sizeof_n16 in
           let* () = update_child p kp (Addr.to_rdonly addr') in
           let* () = write_unlock p in
           let* () = write_unlock_and_obsolete addr in
@@ -1438,7 +1289,7 @@ module Make (S : S) = struct
                  (_header_length + 256 + (Addr.length * 48)) in
              write_unlock addr )
       else
-        let* () = clflush addr' _sizeof_n48 false true in
+        let* () = persist addr' ~len:_sizeof_n48 in
         let* () = update_child p kp (Addr.to_rdonly addr') in
         let* () = write_unlock p in
         let* () = write_unlock_and_obsolete addr in
@@ -1461,7 +1312,7 @@ module Make (S : S) = struct
                  (_header_length + 256 + (Addr.length * 256)) in
              write_unlock addr )
       else
-        let* () = clflush addr' _sizeof_n256 false true in
+        let* () = persist addr' ~len:_sizeof_n256 in
         let* () = update_child p kp (Addr.to_rdonly addr') in
         let* () = write_unlock p in
         let* () = write_unlock_and_obsolete addr in
@@ -1480,7 +1331,7 @@ module Make (S : S) = struct
     then ( let* () = delete addr' (_header_length + 4 + (Addr.length * 4)) in
            write_unlock addr )
     else
-      let* () = clflush addr' _sizeof_n4 false true in
+      let* () = persist addr' ~len:_sizeof_n4 in
       let* () = update_child p kp (Addr.to_rdonly addr') in
       let* () = write_unlock p in
       let* () = write_unlock_and_obsolete addr in
@@ -1499,7 +1350,7 @@ module Make (S : S) = struct
     then ( let* () = delete addr' (_header_length + 16 + (Addr.length * 16)) in
            write_unlock addr )
     else
-      let* () = clflush addr' _sizeof_n16 false true in
+      let* () = persist addr' ~len:_sizeof_n16 in
       let* () = update_child p kp (Addr.to_rdonly addr') in
       let* () = write_unlock p in
       let* () = write_unlock_and_obsolete addr in
@@ -1518,7 +1369,7 @@ module Make (S : S) = struct
     then ( let* () = delete addr' (_header_length + 256 + (Addr.length * 48)) in
            write_unlock addr )
     else
-      let* () = clflush addr' _sizeof_n48 false true in
+      let* () = persist addr' ~len:_sizeof_n48 in
       let* () = update_child p kp (Addr.to_rdonly addr') in
       let* () = write_unlock p in
       let* () = write_unlock_and_obsolete addr in
@@ -1577,7 +1428,7 @@ module Make (S : S) = struct
        be optimised by OCaml). Then, we compile with [-unbox-closures] to avoid
        allocation on this area - but we need to introspect such optimisation. *)
 
-    and _insert (node : [> `Rd | `Wr ] Addr.t) parent pk level =
+    and _insert (node : rdwr Addr.t) parent pk level =
       let need_to_restart = ref false in
       let* version = get_version node in
       let* res = check_prefix_pessimistic node ~key level in
@@ -1601,7 +1452,7 @@ module Make (S : S) = struct
             false in
         let* _             = add_child_n4 n4 (Char.code non_matching_key)
             (Addr.to_rdonly node) false in
-        let* ()            = clflush addr _sizeof_n4 false true in
+        let* ()            = persist addr ~len:_sizeof_n4 in
         let* ()            = write_lock_or_restart parent need_to_restart in
         if !need_to_restart
         then
@@ -1697,7 +1548,7 @@ module Make (S : S) = struct
                 (Char.code key.![level + 1 + !prefix_count]) leaf false in
             let* _   = add_child_n4 n4
                 (Char.code key'.![level + 1 + !prefix_count]) next false in
-            let* () = clflush addr _sizeof_n4 false true in
+            let* () = persist addr ~len:_sizeof_n4 in
             Log.debug (fun m -> m "Update key.[%d] = %c." level key.[level]) ;
             let* _   = update_child node
                 (Char.code key.[level]) (Addr.to_rdonly addr) in
@@ -1705,7 +1556,7 @@ module Make (S : S) = struct
             return () )
         else
           let () = Log.debug (fun m -> m "the child is a node.") in
-          _insert (Addr.of_int_rdwr (next :> int)) node
+          _insert (Addr.of_int_to_rdwr (next :> int)) node
             (Char.code key.[level]) (succ level) ) in
 
     (* XXX(dinosaure): [ctor] creates a [N256] node on the [root]. So, the case
@@ -1719,9 +1570,9 @@ module Make (S : S) = struct
        be used to write something into [Addr.null] but we need to play the game
        of the type-system. *)
 
-    _insert root Addr.(of_int_rdwr (null :> int)) 0 0
+    _insert root Addr.(of_int_to_rdwr (null :> int)) 0 0
 
-  let ctor () =
+  let make () =
     let* N256 addr = alloc_n256 ~prefix:"" ~prefix_count:0 ~level:0 in
     return (addr)
 

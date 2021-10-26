@@ -11,7 +11,7 @@
  (name rowex)
  (modules rowex)
  (public_name rowex)
- (libraries ipc fmt logs)
+ (libraries atomic ipc fmt logs)
  (ocamlopt_flags -O3)
  (foreign_stubs
   (language c)
@@ -31,16 +31,14 @@
   (flags
    (:standard)
    (:include endian.sexp)
-   (:include sse.sexp))
+   (:include sse.sexp)
+   (:include flush.sexp))
   (names persistent)))
 
 (library
  (name part)
  (modules part)
- (libraries rresult mmap persistent)
- (foreign_stubs
-  (language c)
-  (names part)))
+ (libraries rresult mmap persistent))
 
 (rule
  (targets endian.sexp)
@@ -51,3 +49,8 @@
  (targets sse.sexp)
  (action
   (run ../conf/sse.exe)))
+
+(rule
+ (targets flush.sexp)
+ (action
+  (run ../conf/flush.exe)))

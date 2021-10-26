@@ -10,3 +10,20 @@
  (name sse)
  (modules sse)
  (libraries dune-configurator))
+
+(executable
+ (name flush)
+ (modules flush)
+ (foreign_stubs
+  (language c)
+  (names cpu))
+ (libraries dune-configurator))
+
+(executable
+ (name atomic)
+ (modules atomic))
+
+(rule
+ (with-stdout-to
+  which-atomic
+  (run ./atomic.exe)))

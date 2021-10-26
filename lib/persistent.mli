@@ -4,33 +4,28 @@ type memory = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Arr
 
 type 'a t
 
-type 'fd mmu
+val pp : Format.formatter -> 'c rd Addr.t -> unit t
 
-type 'fd write = 'fd -> string -> off:int -> len:int -> int -> unit
+type 'c mmu
 
-val mmu_of_memory :
-  write:'fd write ->
-  Ipc.t -> memory -> 'fd mmu
+val ro : Ipc.t -> memory -> ro mmu
+val rdwr : Ipc.t -> memory -> rdwr mmu
 
-val memory_of_mmu : 'fd mmu -> memory
-val root_of_mmu : 'fd mmu -> [ `Rd | `Wr ] Addr.t
-val ipc_of_mmu : 'fd mmu -> Ipc.t
+val find : 'c rd mmu -> key -> int t
+val insert : rdwr mmu -> key -> int -> unit t
+val make : Ipc.t -> memory -> rdwr mmu t
 
-val run : 'fd mmu -> 'a t -> 'a
-
-val pp : Format.formatter -> [> `Rd ] Addr.t -> unit t
-val find : [> `Rd ] Addr.t -> key -> int t
-val insert : [> `Rd | `Wr ] Addr.t -> key -> int -> unit t
-val ctor : unit -> [ `Rd | `Wr ] Addr.t t
+val run : 'c mmu -> 'a t -> 'a
+val ipc : 'c mmu -> Ipc.t
 
 (** / **)
 
 external atomic_set_leuintnat
-  : memory -> int -> _ memory_order -> int -> unit
+  : memory -> int -> int -> unit
   = "caml_atomic_set_leuintnat" [@@noalloc]
 
 external atomic_get_leuintnat
-  : memory -> int -> _ memory_order -> int
+  : memory -> int -> int
   = "caml_atomic_get_leuintnat" [@@noalloc]
 
 external to_memory

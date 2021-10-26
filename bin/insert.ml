@@ -14,17 +14,16 @@ let reporter ppf =
     msgf @@ fun ?header ?tags fmt -> with_metadata header tags k ppf fmt in
   { Logs.report }
 
-let insert _ file (key : Rowex.key) value =
-  let idx = Part.wr_mmu_of_file (Fpath.to_string file) in
-  try Part.insert idx (key :> string) value ; `Ok 0
-  with
-  | Rowex.Duplicate ->
-    `Error (false, Fmt.str "%S already exists into %a." (key :> string) Fpath.pp file)
-  | exn ->
-    Logs.err (fun m -> m "Got an error while inserting %S into %a: %s"
-      (key :> string) Fpath.pp file (Printexc.to_string exn)) ;
-    `Error (false, Fmt.str "Got an error while inserting %S into %a: %s"
-      (key :> string) Fpath.pp file (Printexc.to_string exn))
+let insert _ path (key : Rowex.key) value =
+  let th0 =
+    let open Part in
+    let* () = open_index writer ~path:(Fpath.to_string path) in
+    let* () = insert key value in
+    close in
+  match Part.(run closed th0) with
+  | _closed, () -> `Ok 0
+  | exception Rowex.Duplicate ->
+    `Error (false, Fmt.str "%S already exists into %a." (key :> string) Fpath.pp path)
 
 open Cmdliner
 

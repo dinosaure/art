@@ -17,32 +17,34 @@ let () =
   Fmt.pr "Random: %a.\n%!" Fmt.(Dump.array int) random_seed;
   Random.full_init random_seed
 
-let size_of_word = Sys.word_size / 8
+let state_of_path path =
+  let state, () = Part.(run closed (open_index writer ~path)) in
+  state
 
-open Persistent
-
-let identity x = x
-let empty = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0
-
-let create filename = Part.create filename
-
-let page_size = 4096
-
-let mmu_of_file filename = Part.unsafe_mmu_of_file filename
-
-let random_index : (_ Part.t, _) result Lazy.t =
+let random_index : (_ Part.state, _) result Lazy.t =
   Lazy.from_fun @@ fun () ->
   let open Rresult in
-  Bos.OS.File.tmp "index-%s" >>| fun index ->
-  create (Fpath.to_string index) ; mmu_of_file (Fpath.to_string index)
-;;
+  Bos.OS.File.tmp "index-%s" >>= fun path ->
+  let path = Fpath.to_string path in
+  match Part.(run closed (create path)) with
+  | state, Ok () ->
+    let state, () = Part.(run state (open_index writer ~path)) in
+    Ok state
+  | _closed, Error err -> Error err
 
-let mmu_of_optional_file = function
-  | Some mmu -> mmu
+let state_of_optional_path = function
+  | Some path -> state_of_path path
   | None -> Rresult.R.failwith_error_msg (Lazy.force random_index)
 
-let insert mmu root key v = run mmu (Persistent.insert root (Rowex.key key) v)
-let find mmu root key = run mmu (Persistent.find root (Rowex.key key))
+let insert state key value =
+  match Part.(run state (insert key value)) with
+  | state, () -> Ok state
+  | exception Rowex.Duplicate -> Error (`Duplicate state)
+
+let find state key =
+  match Part.(run state (find key)) with
+  | state, value -> Ok (state, value)
+  | exception Not_found -> Error `Not_found
 
 let reporter ppf =
   let report src level ~over k msgf =
@@ -67,37 +69,62 @@ let setup_logs style_renderer level =
 let () = setup_logs (Some `Ansi_tty) (Some Logs.Debug)
 
 let test01 =
-  Alcotest.test_case "test01" `Quick @@ fun file ->
-  let mmu = mmu_of_optional_file file in
-  Part.insert mmu "abc"   1 ;
-  Alcotest.(check int) "abc"   (Part.lookup mmu "abc")   1 ;
-  Part.insert mmu "ab"    2 ;
-  Alcotest.(check int) "abc"   (Part.lookup mmu "abc")   1 ;
-  Alcotest.(check int) "ab"    (Part.lookup mmu "ab")    2 ;
-  Part.insert mmu "abcde" 3 ;
-  Alcotest.(check int) "abc"   (Part.lookup mmu "abc")   1 ;
-  Alcotest.(check int) "ab"    (Part.lookup mmu "ab")    2 ;
-  Alcotest.(check int) "abcde" (Part.lookup mmu "abcde") 3
-;;
+  Alcotest.test_case "test01" `Quick @@ fun path ->
+  let state = state_of_optional_path path in
+  let th0 =
+    let open Part in
+    let* () = insert (Rowex.key "abc") 1 in
+    let* v' = find (Rowex.key "abc") in
+    Alcotest.(check int) "abc" v' 1 ;
+    let* () = insert (Rowex.key "ab") 2 in
+    let* v' = find (Rowex.key "ab") in
+    Alcotest.(check int) "ab" v' 2 ;
+    let* () = insert (Rowex.key "abcde") 3 in
+    let* v0 = find (Rowex.key "abc") in
+    let* v1 = find (Rowex.key "ab") in
+    let* v2 = find (Rowex.key "abcde") in
+    Alcotest.(check int) "abc"   v0 1 ;
+    Alcotest.(check int) "ab"    v1 2 ;
+    Alcotest.(check int) "abcde" v2 3 ;
+    close in
+  match Part.run state th0 with
+  | _closed, () -> ()
+  | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
+  | exception Not_found -> Alcotest.failf "Key not found"
 
 let test02 =
-  Alcotest.test_case "test02" `Quick @@ fun file ->
-  let mmu = mmu_of_optional_file file in
-  Part.insert mmu "a0" 0 ;
-  Part.insert mmu "a1" 1 ;
-  Part.insert mmu "a2" 2 ;
-  Part.insert mmu "a3" 3 ;
-  Alcotest.(check int) "a0" (Part.lookup mmu "a0") 0 ;
-  Alcotest.(check int) "a1" (Part.lookup mmu "a1") 1 ;
-  Alcotest.(check int) "a2" (Part.lookup mmu "a2") 2 ;
-  Alcotest.(check int) "a3" (Part.lookup mmu "a3") 3 ;
-  Part.insert mmu "a4" 4 ;
-  Alcotest.(check int) "a0" (Part.lookup mmu "a0") 0 ;
-  Alcotest.(check int) "a1" (Part.lookup mmu "a1") 1 ;
-  Alcotest.(check int) "a2" (Part.lookup mmu "a2") 2 ;
-  Alcotest.(check int) "a3" (Part.lookup mmu "a3") 3 ;
-  Alcotest.(check int) "a4" (Part.lookup mmu "a4") 4
-;;
+  Alcotest.test_case "test02" `Quick @@ fun path ->
+  let state = state_of_optional_path path in
+  let th0 =
+    let open Part in
+    let* () = insert (Rowex.key "a0") 0 in
+    let* () = insert (Rowex.key "a1") 1 in
+    let* () = insert (Rowex.key "a2") 2 in
+    let* () = insert (Rowex.key "a3") 3 in
+    let* v0 = find (Rowex.key "a0") in
+    let* v1 = find (Rowex.key "a1") in
+    let* v2 = find (Rowex.key "a2") in
+    let* v3 = find (Rowex.key "a3") in
+    Alcotest.(check int) "a0" v0 0 ;
+    Alcotest.(check int) "a1" v1 1 ;
+    Alcotest.(check int) "a2" v2 2 ;
+    Alcotest.(check int) "a3" v3 3 ;
+    let* () = insert (Rowex.key "a4") 4 in
+    let* v0 = find (Rowex.key "a0") in
+    let* v1 = find (Rowex.key "a1") in
+    let* v2 = find (Rowex.key "a2") in
+    let* v3 = find (Rowex.key "a3") in
+    let* v4 = find (Rowex.key "a4") in
+    Alcotest.(check int) "a0" v0 0 ;
+    Alcotest.(check int) "a1" v1 1 ;
+    Alcotest.(check int) "a2" v2 2 ;
+    Alcotest.(check int) "a3" v3 3 ;
+    Alcotest.(check int) "a4" v4 4 ;
+    close in
+  match Part.run state th0 with
+  | _closed, () -> ()
+  | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
+  | exception Not_found -> Alcotest.failf "Key not found"
 
 let random_string len =
   let res = Bytes.create len in
@@ -105,45 +132,75 @@ let random_string len =
   Bytes.unsafe_to_string res
 
 let test03 =
-  Alcotest.test_case "test03" `Quick @@ fun file ->
+  Alcotest.test_case "test03" `Quick @@ fun path ->
   let max = 500 in
-  let mmu = mmu_of_optional_file file in
+  let state = state_of_optional_path path in
   let vs = List.init max (fun _ -> random_string (1 + Random.int 63), Random.int max) in
-  List.iter (fun (k, v) -> Part.insert mmu k v) vs ;
-  Alcotest.(check pass) "insertion" () () ;
-  let check k v =
-    let v' = Part.lookup mmu k in
-    Alcotest.(check int) (Fmt.str "%S" k) v' v in
-  List.iter (fun (k, v) -> check k v) vs
-;;
+  let th0 =
+    let open Part in
+    let rec go0 = function
+      | [] -> return ()
+      | (k, v) :: r ->
+        let* () = Part.insert (Rowex.key k) v in
+        Alcotest.(check pass) (Fmt.str "insert %S" k) () () ;
+        go0 r in
+    let* () = go0 vs in
+    let rec go1 = function
+      | [] -> close
+      | (k, v) :: r ->
+        let* v' = find (Rowex.key k) in
+        Alcotest.(check int) (Fmt.str "%S" k) v' v ;
+        go1 r in
+    go1 vs in
+  match Part.run state th0 with
+  | _closed, () -> ()
+  | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
+  | exception Not_found -> Alcotest.failf "Key not found"
 
 let test04 =
-  Alcotest.test_case "test04" `Quick @@ fun file ->
-  let mmu = mmu_of_optional_file file in
-  Part.insert mmu "stone@meekness.com" 0 ;
-  Part.insert mmu "ca-tech@dps,centrin.net.id" 1 ;
-  Part.insert mmu "trinanda_lestyowati@elkomsel.co.id" 2 ;
-  Part.insert mmu "asst_dos@asonrasuna.com" 3 ;
-  Part.insert mmu "amartabali@dps.centrim.net.id" 4 ;
-  Part.insert mmu "achatv@cbn.net.id" 5 ;
-  Part.insert mmu "bali@tuguhotels.com" 6 ;
-  Part.insert mmu "baliminimalist@yahoo.com" 7 ; (* prefix with [li] on a n16 node *)
-  Alcotest.(check int) "bali@tuguhotels.com" (Part.lookup mmu "bali@tuguhotels.com") 6 ;
-  Alcotest.(check int) "baliminimalist@yahoo.com" (Part.lookup mmu "baliminimalist@yahoo.com") 7 ;
-;;
+  Alcotest.test_case "test04" `Quick @@ fun path ->
+  let state = state_of_optional_path path in
+  let th0 =
+    let open Part in
+    let* () = insert (Rowex.key "stone@meekness.com") 0 in
+    let* () = insert (Rowex.key "ca-tech@dps,centrin.net.id") 1 in
+    let* () = insert (Rowex.key "trinanda_lestyowati@elkomsel.co.id") 2 in
+    let* () = insert (Rowex.key "asst_dos@asonrasuna.com") 3 in
+    let* () = insert (Rowex.key "amartabali@dps.centrim.net.id") 4 in
+    let* () = insert (Rowex.key "achatv@cbn.net.id") 5 in
+    let* () = insert (Rowex.key "bali@tuguhotels.com") 6 in
+    let* () = insert (Rowex.key "baliminimalist@yahoo.com") 7 in (* prefix with [li] on a n16 node *)
+    let* v0 = find (Rowex.key "bali@tuguhotels.com") in
+    let* v1 = find (Rowex.key "baliminimalist@yahoo.com") in
+    Alcotest.(check int) "bali@tuguhotels.com" v0 6 ;
+    Alcotest.(check int) "baliminimalist@yahoo.com" v1 7 ;
+    close in
+  match Part.run state th0 with
+  | _closed, () -> ()
+  | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
+  | exception Not_found -> Alcotest.failf "Key not found"
 
 let test05 =
-  Alcotest.test_case "test05" `Quick @@ fun file ->
-  let mmu = mmu_of_optional_file file in
-  Part.insert mmu "bliss@thebale.com" 8 ;
-  Alcotest.(check int) "bali@tuguhotels.com" (Part.lookup mmu "bali@tuguhotels.com") 6 ;
-  Alcotest.(check int) "baliminimalist@yahoo.com" (Part.lookup mmu "baliminimalist@yahoo.com") 7 ;
-  Alcotest.(check int) "bliss@thebale.com" (Part.lookup mmu "bliss@thebale.com") 8 ;
-;;
+  Alcotest.test_case "test05" `Quick @@ fun path ->
+  let state = state_of_optional_path path in
+  let th0 =
+    let open Part in
+    let* () = insert (Rowex.key "bliss@thebale.com") 8 in
+    let* v0 = find (Rowex.key "bali@tuguhotels.com") in
+    let* v1 = find (Rowex.key "baliminimalist@yahoo.com") in
+    let* v2 = find (Rowex.key "bliss@thebale.com") in
+    Alcotest.(check int) "bali@tuguhotels.com" v0 6 ;
+    Alcotest.(check int) "baliminimalist@yahoo.com" v1 7 ;
+    Alcotest.(check int) "bliss@thebale.com" v2 8 ;
+    close in
+  match Part.run state th0 with
+  | _closed, () -> ()
+  | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
+  | exception Not_found -> Alcotest.failf "Key not found"
 
 let test06 =
-  Alcotest.test_case "test06" `Quick @@ fun file ->
-  let mmu = mmu_of_optional_file file in
+  Alcotest.test_case "test06" `Quick @@ fun path ->
+  let state = state_of_optional_path path in
   let elts =
     [ "adhidharma@denpasar.wasantara.net.id"
     ; "centralreservation@ramayanahotel.com"
@@ -199,26 +256,42 @@ let test06 =
     ; "lia_kiara97@yahoo.com"
     ; "rido@weddingku.com"
     ; "b_astuti@telkomsel.co.id" ] in
-  List.iteri (fun v k -> Part.insert mmu k v) elts ;
-  let reporter = Logs.reporter () in
-  Logs.set_reporter Logs.nop_reporter ;
-  Fmt.epr "%a\n%!" Part.pp mmu ;
-  Logs.set_reporter reporter ;
-  Part.insert mmu "garudawisata@indo.net.id" (-1) ;
-  let reporter = Logs.reporter () in
-  Logs.set_reporter Logs.nop_reporter ;
-  Fmt.epr "%a\n%!" Part.pp mmu ;
-  Logs.set_reporter reporter ;
-  Alcotest.(check int) "garudawisatajaya@indo.net.id" (Part.lookup mmu "garudawisatajaya@indo.net.id") 22 ;
-  Alcotest.(check int) "garudawisata@indo.net.id" (Part.lookup mmu "garudawisata@indo.net.id") (-1) ;
-  List.iteri (fun v' k -> Alcotest.(check int) k (Part.lookup mmu k) v') elts ;
-;;
+  let th0 =
+    let open Part in
+    let rec go0 idx = function
+      | [] -> return ()
+      | key :: r ->
+        let* () = insert (Rowex.key key) idx in
+        go0 (succ idx) r in
+    (* let reporter = Logs.reporter () in
+       Logs.set_reporter Logs.nop_reporter ;
+       Fmt.epr "%a\n%!" Part.pp state ;
+       Logs.set_reporter reporter ; *)
+    let* () = go0 0 elts in
+    let* () = insert (Rowex.key "garudawisata@indo.net.id") (-1) in
+    (* let reporter = Logs.reporter () in
+       Logs.set_reporter Logs.nop_reporter ;
+       Fmt.epr "%a\n%!" Part.pp state ;
+       Logs.set_reporter reporter ; *)
+    let* v0 = find (Rowex.key "garudawisatajaya@indo.net.id") in
+    let* v1 = find (Rowex.key "garudawisata@indo.net.id") in
+    Alcotest.(check int) "garudawisatajaya@indo.net.id" v0 22 ;
+    Alcotest.(check int) "garudawisata@indo.net.id" v1 (-1) ;
+    let rec go1 idx = function
+      | [] -> close
+      | key :: r ->
+        let* v' = find (Rowex.key key) in
+        Alcotest.(check int) key idx v' ;
+        go1 (succ idx) r in
+    go1 0 elts in
+  match Part.run state th0 with
+  | _closed, () -> ()
+  | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
+  | exception Not_found -> Alcotest.failf "Key not found"
 
 let test07 =
   Alcotest.test_case "test07" `Quick @@ fun _file ->
-  let index = Rresult.R.get_ok (Bos.OS.File.tmp "index-%s") in
-  create (Fpath.to_string index) ;
-  let mmu = mmu_of_file (Fpath.to_string index) in
+  let path = Rresult.R.get_ok (Bos.OS.File.tmp "index-%s") in
   let elts =
     [ "adhidharma@denpasar.wasantara.net.id"
     ; "centralreservation@ramayanahotel.com"
@@ -290,24 +363,43 @@ let test07 =
     ; "bungjon@gmail.com"
     ; "diar@bdg.centrin.net.id"
     ; "elmienruge@hotmail.com" ] in
-  List.iteri (fun v k -> Part.insert mmu k v) elts ;
-  let reporter = Logs.reporter () in
-  Logs.set_reporter Logs.nop_reporter ;
-  Fmt.epr "%a\n%!" Part.pp mmu ;
-  Logs.set_reporter reporter ;
-  Part.insert mmu "galaxygarden2006@yahoo.com" (-1) ;
-  let reporter = Logs.reporter () in
-  Logs.set_reporter Logs.nop_reporter ;
-  Fmt.epr "%a\n%!" Part.pp mmu ;
-  Logs.set_reporter reporter ;
-  List.iteri (fun v' k -> Alcotest.(check int) k (Part.lookup mmu k) v') elts ;
-;;
+  let th0 =
+    let open Part in
+    let* res = create (Fpath.to_string path) in
+    match res with
+    | Error (`Msg err) -> Alcotest.failf "%s." err
+    | Ok () ->
+      let* () = open_index writer ~path:(Fpath.to_string path) in
+      let rec go0 idx = function
+        | [] -> return ()
+        | key :: r ->
+          let* () = insert (Rowex.key key) idx in
+          go0 (succ idx) r in
+      let* () = go0 0 elts in
+      (* let reporter = Logs.reporter () in
+         Logs.set_reporter Logs.nop_reporter ;
+         Fmt.epr "%a\n%!" Part.pp state ;
+         Logs.set_reporter reporter ; *)
+      let* () = insert (Rowex.key "galaxygarden2006@yahoo.com") (-1) in
+      (* let reporter = Logs.reporter () in
+         Logs.set_reporter Logs.nop_reporter ;
+         Fmt.epr "%a\n%!" Part.pp state ;
+         Logs.set_reporter reporter ; *)
+      let rec go1 idx = function
+        | [] -> close
+        | key :: r ->
+          let* v' = find (Rowex.key key) in
+          Alcotest.(check int) key v' idx ;
+          go1 (succ idx) r in
+      go1 0 elts in
+  match Part.(run closed th0) with
+  | _closed, () -> ()
+  | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
+  | exception Not_found -> Alcotest.failf "Key not found"
 
 let test08 =
-  Alcotest.test_case "test08" `Quick @@ fun _file ->
-  let index = Rresult.R.get_ok (Bos.OS.File.tmp "index-%s") in
-  create (Fpath.to_string index) ;
-  let mmu = mmu_of_file (Fpath.to_string index) in
+  Alcotest.test_case "test08" `Quick @@ fun _path ->
+  let path = Rresult.R.get_ok (Bos.OS.File.tmp "index-%s") in
   let elts =
     [ "adhidharma@denpasar.wasantara.net.id"
     ; "centralreservation@ramayanahotel.com"
@@ -579,29 +671,45 @@ let test08 =
     ; "adityafood@yahoo.com,"
     ; "sarana_com@yahoo.com,"
     ; "pasadena@chek.com," ] in
-  let reporter = Logs.reporter () in
-  List.iteri (fun v k ->
-    Part.insert mmu k v ;
-    Logs.set_reporter Logs.nop_reporter ;
-    Fmt.epr "%a\n%!" Part.pp mmu ;
-    Logs.set_reporter reporter) elts ;
-  let reporter = Logs.reporter () in
-  Logs.set_reporter Logs.nop_reporter ;
-  Fmt.epr "%a\n%!" Part.pp mmu ;
-  Logs.set_reporter reporter ;
-  Part.insert mmu "sales@pica-pica.com," (-1) ;
-  Logs.set_reporter Logs.nop_reporter ;
-  Fmt.epr "%a\n%!" Part.pp mmu ;
-  Logs.set_reporter reporter ;
-  Alcotest.(check int) "sales@pica-pica.com," (Part.lookup mmu "sales@pica-pica.com,") (-1) ;
-  List.iteri (fun v' k -> Alcotest.(check int) k (Part.lookup mmu k) v') elts ;
-;;
+  let th0 =
+    let open Part in
+    let* res = create (Fpath.to_string path) in
+    match res with
+    | Error (`Msg err) -> Alcotest.failf "%s." err
+    | Ok () ->
+      let* () = open_index writer ~path:(Fpath.to_string path) in
+      let rec go0 idx = function
+        | [] -> return ()
+        | key :: r ->
+          let* () = insert (Rowex.key key) idx in
+          go0 (succ idx) r in
+      let* () = go0 0 elts in
+      (* let reporter = Logs.reporter () in
+         Logs.set_reporter Logs.nop_reporter ;
+         Fmt.epr "%a\n%!" Part.pp state ;
+         Logs.set_reporter reporter ; *)
+      let* () = insert (Rowex.key "sales@pica-pica.com,") (-1) in
+      (* let reporter = Logs.reporter () in
+         Logs.set_reporter Logs.nop_reporter ;
+         Fmt.epr "%a\n%!" Part.pp state ;
+         Logs.set_reporter reporter ; *)
+      let* v' = find (Rowex.key "sales@pica-pica.com,") in
+      Alcotest.(check int) "sales@pica-pica.com," v' (-1) ;
+      let rec go1 idx = function
+        | [] -> close
+        | key :: r ->
+          let* v' = find (Rowex.key key) in
+          Alcotest.(check int) key v' idx ;
+          go1 (succ idx) r in
+      go1 0 elts in
+  match Part.(run closed th0) with
+  | _closed, () -> ()
+  | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
+  | exception Not_found -> Alcotest.failf "Key not found"
 
 let test09 =
-  Alcotest.test_case "test09" `Quick @@ fun _file ->
-  let index = Rresult.R.get_ok (Bos.OS.File.tmp "index-%s") in
-  create (Fpath.to_string index) ;
-  let mmu = mmu_of_file (Fpath.to_string index) in
+  Alcotest.test_case "test09" `Quick @@ fun _path ->
+  let path = Rresult.R.get_ok (Bos.OS.File.tmp "index-%s") in
   let elts =
     [ "adhidharma@denpasar.wasantara.net.id"
     ; "centralreservation@ramayanahotel.com"
@@ -926,29 +1034,45 @@ let test09 =
     ; "sales@bali-clubaqua.com,"
     ; "sales@amandaresort.com,"
     ; "sales@balimandira.com," ] in
-  let reporter = Logs.reporter () in
-  List.iteri (fun v k ->
-    Part.insert mmu k v ;
-    Logs.set_reporter Logs.nop_reporter ;
-    Fmt.epr "%a\n%!" Part.pp mmu ;
-    Logs.set_reporter reporter) elts ;
-  let reporter = Logs.reporter () in
-  Logs.set_reporter Logs.nop_reporter ;
-  Fmt.epr "%a\n%!" Part.pp mmu ;
-  Logs.set_reporter reporter ;
-  Part.insert mmu "reservation@ramacandidasahotel.com," (-1) ;
-  Logs.set_reporter Logs.nop_reporter ;
-  Fmt.epr "%a\n%!" Part.pp mmu ;
-  Logs.set_reporter reporter ;
-  Alcotest.(check int) "sales@pica-pica.com," (Part.lookup mmu "reservation@ramacandidasahotel.com,") (-1) ;
-  List.iteri (fun v' k -> Alcotest.(check int) k (Part.lookup mmu k) v') elts ;
-;;
+  let th0 =
+    let open Part in
+    let* res = create (Fpath.to_string path) in
+    match res with
+    | Error (`Msg err) -> Alcotest.failf "%s." err
+    | Ok () ->
+      let* () = open_index writer ~path:(Fpath.to_string path) in
+      let rec go0 idx = function
+        | [] -> return ()
+        | key :: r ->
+          let* () = insert (Rowex.key key) idx in
+          go0 (succ idx) r in
+      let* () = go0 0 elts in
+      (* let reporter = Logs.reporter () in
+         Logs.set_reporter Logs.nop_reporter ;
+         Fmt.epr "%a\n%!" Part.pp state ;
+         Logs.set_reporter reporter ; *)
+      let* () = insert (Rowex.key "reservation@ramacandidasahotel.com,") (-1) in
+      (* let reporter = Logs.reporter () in
+         Logs.set_reporter Logs.nop_reporter ;
+         Fmt.epr "%a\n%!" Part.pp state ;
+         Logs.set_reporter reporter ; *)
+      let* v' = find (Rowex.key "reservation@ramacandidasahotel.com,") in
+      Alcotest.(check int) "reservation@ramacandidasahotel.com," v' (-1) ;
+      let rec go1 idx = function
+        | [] -> close
+        | key :: r ->
+          let* v' = find (Rowex.key key) in
+          Alcotest.(check int) key v' idx ;
+          go1 (succ idx) r in
+      go1 0 elts in
+  match Part.(run closed th0) with
+  | _closed, () -> ()
+  | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
+  | exception Not_found -> Alcotest.failf "Key not found"
 
 let test10 =
-  Alcotest.test_case "test10" `Quick @@ fun _file ->
-  let index = Rresult.R.get_ok (Bos.OS.File.tmp "index-%s") in
-  create (Fpath.to_string index) ;
-  let mmu = mmu_of_file (Fpath.to_string index) in
+  Alcotest.test_case "test10" `Quick @@ fun _path ->
+  let path = Rresult.R.get_ok (Bos.OS.File.tmp "index-%s") in
   let elts =
     [ "adhidharma@denpasar.wasantara.net.id"
     ; "centralreservation@ramayanahotel.com"
@@ -1763,32 +1887,50 @@ let test10 =
     ; "hrd@novotelbali.com"
     ; "purwa@kcb-tours.com"
     ; "anggie.gendut@england.com" ] in
-  let reporter = Logs.reporter () in
-  List.iteri (fun v k ->
-    Part.insert mmu k v ;
-    Logs.set_reporter Logs.nop_reporter ;
-    Fmt.epr "%a\n%!" Part.pp mmu ;
-    Logs.set_reporter reporter) elts ;
-  let reporter = Logs.reporter () in
-  Logs.set_reporter Logs.nop_reporter ;
-  Fmt.epr "%a\n%!" Part.pp mmu ;
-  Logs.set_reporter reporter ;
-  Part.insert mmu "novyog@indo.net.id" (-1) ;
-  Logs.set_reporter Logs.nop_reporter ;
-  Fmt.epr "%a\n%!" Part.pp mmu ;
-  Logs.set_reporter reporter ;
-  Alcotest.(check int) "novyog@indo.net.id" (Part.lookup mmu "novyog@indo.net.id") (-1) ;
-  List.iteri (fun v' k -> Alcotest.(check int) k (Part.lookup mmu k) v') elts ;
-;;
+  let th0 =
+    let open Part in
+    let* res = create (Fpath.to_string path) in
+    match res with
+    | Error (`Msg err) -> Alcotest.failf "%s." err
+    | Ok () ->
+      let* () = open_index writer ~path:(Fpath.to_string path) in
+      let rec go0 idx = function
+        | [] -> return ()
+        | key :: r ->
+          let* () = insert (Rowex.key key) idx in
+          go0 (succ idx) r in
+      let* () = go0 0 elts in
+      (* let reporter = Logs.reporter () in
+         Logs.set_reporter Logs.nop_reporter ;
+         Fmt.epr "%a\n%!" Part.pp state ;
+         Logs.set_reporter reporter ; *)
+      let* () = insert (Rowex.key "novyog@indo.net.id") (-1) in
+      (* let reporter = Logs.reporter () in
+         Logs.set_reporter Logs.nop_reporter ;
+         Fmt.epr "%a\n%!" Part.pp state ;
+         Logs.set_reporter reporter ; *)
+      let* v' = find (Rowex.key "novyog@indo.net.id") in
+      Alcotest.(check int) "novyog@indo.net.id" v' (-1) ;
+      let rec go1 idx = function
+        | [] -> close
+        | key :: r ->
+          let* v' = find (Rowex.key key) in
+          Alcotest.(check int) key v' idx ;
+          go1 (succ idx) r in
+      go1 0 elts in
+  match Part.(run closed th0) with
+  | _closed, () -> ()
+  | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
+  | exception Not_found -> Alcotest.failf "Key not found"
 
 open Cmdliner
 
 let filename =
   let parser x = match Fpath.of_string x with
     | Ok v when not (Sys.file_exists x) ->
-      let open Rresult in
-      create (Fpath.to_string v) ;
-      Ok (mmu_of_file (Fpath.to_string v))
+      ( match Part.(run closed (create (Fpath.to_string v))) with
+      | _closed, Ok () -> Ok (Fpath.to_string v)
+      | _closed, Error err -> Error err )
     | Ok v -> Rresult.R.error_msgf "%a already exists" Fpath.pp v
     | Error _ as err -> err in
   let pp ppf _ = Fmt.pf ppf "#index" in

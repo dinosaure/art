@@ -20,47 +20,63 @@ open Rresult
 let identity x = x
 let size_of_word = Sys.word_size / 8
 
-let exists mmu v key =
-  match Part.lookup mmu key with
-  | v' ->
+let exists state v key =
+  match Part.(run state (find (Rowex.unsafe_key key))) with
+  | state, v' ->
     if v <> v'
-    then ( Logs.err (fun m -> m "Wrong value for %s." key) ; exit 1 )
-    else ( Logs.debug (fun m -> m "%s => %d." key v) ; true )
-  | exception Not_found -> false
+    then ( Logs.err (fun m -> m "Wrong value for %s." (key :> string)) ; exit 1 )
+    else ( Logs.debug (fun m -> m "%s => %d." (key :> string) v) ; true, state )
+  | exception Not_found -> false, state
 
 type kind = [ `Simple_consumer_simple_producer
             | `Multiple_consumer_simple_producer ]
 
-let test ~kind dataset filename =
-  Part.create (Fpath.to_string filename) ;
+let test ~kind dataset path =
   Logs.debug (fun m -> m "Create the index.") ;
   let fiber0 () =
-    let mmu = Part.wr_mmu_of_file (Fpath.to_string filename) in
-    let rec go ic n = match input_line ic with
-      | line ->
-        Logs.debug (fun m -> m "Insert %S." line) ;
-        Part.insert mmu line n ; go ic (succ n)
-      | exception End_of_file ->
-        Logs.debug (fun m -> m "End of writer") ;
-        close_in ic in
-    Logs.debug (fun m -> m "Start the writer.") ;
-    go (open_in (Fpath.to_string dataset)) 0 in
+    let th0 =
+      let open Part in
+      let rec go ic n = match input_line ic with
+        | line ->
+          Logs.debug (fun m -> m "Insert %S." line) ;
+          let* () = Part.insert (Rowex.unsafe_key line) n in
+          go ic (succ n)
+        | exception End_of_file ->
+          Logs.debug (fun m -> m "End of writer") ;
+          close_in ic ; close in
+      Logs.debug (fun m -> m "Start the writer.") ;
+      let* () = open_index writer ~path in
+      go (open_in (Fpath.to_string dataset)) 0 in
+    let _closed, () = Part.(run closed th0) in () in
   let fiber1 dataset () =
-    let mmu = Part.rd_mmu_of_file (Fpath.to_string filename) in
-    let rec go dataset queue =
-      let res = Array.mapi (exists mmu) dataset in
-      if not (Array.for_all identity res)
-      then ( let _missing = Array.fold_left (fun a -> function true -> a | _ -> succ a) 0 res in
+    let rec go state dataset queue =
+      let ress = Array.make (Array.length dataset) false in
+      let fold (idx, state) key =
+        let res, state = exists state idx key in 
+        ress.(idx) <- res ;
+        succ idx, state in
+      let _, state  = Array.fold_left fold (0, state) dataset in
+      if not (Array.for_all identity ress)
+      then ( let _missing =
+               let fold acc = function
+                 | true -> acc
+                 | false -> succ acc in
+               Array.fold_left fold 0 ress in
              Logs.debug (fun m -> m "Missing %d elements." _missing)
-           ; Queue.push res queue
-           ; go dataset queue )
+           ; Queue.push ress queue
+           ; go state dataset queue )
       else
-        ( Part.delete_reader (Part.ipc mmu)
-        ; Logs.debug (fun m -> m "End of reader: @[<hov>%a@]" Fmt.(Dump.array bool) res)
-        ; Queue.push res queue
-        ; Queue.fold (fun res x -> x :: res) [] queue ) in
+        ( Logs.debug (fun m -> m "End of reader: @[<hov>%a@]"
+            Fmt.(Dump.array bool) ress)
+        ; Queue.push ress queue
+        ; state, Queue.fold (fun ress x -> x :: ress) [] queue ) in
     Logs.debug (fun m -> m "Start the reader.") ;
-    go dataset (Queue.create ()) in
+    let uid = Unix.getpid () in
+    let uid = Int64.of_int uid in
+    let state, () = Part.(run closed (open_index (reader uid) ~path)) in
+    let state, resss = go state dataset (Queue.create ()) in
+    let _closed, () = Part.(run state close) in
+    resss in
   let dataset =
     let rec go ic acc = match input_line ic with
       | line -> go ic (line :: acc)
@@ -90,14 +106,17 @@ let test ~kind dataset filename =
   | `Simple_consumer_simple_producer ->
     let open Fiber in
     let temp = R.failwith_error_msg (Tmp.tmp "fiber-%s") in
-    ( fork_and_join (fun () -> run_process fiber0) (fun () -> run_process ~file:(Fpath.to_string temp) (fiber1 dataset)) >>= function
-    | Ok (), Ok histogram ->
-      Fmt.pr ">>> %d iteration(s).\n%!" (List.length histogram) ;
-      return (Ok ())
-    | Error exit, _ ->
-      return (R.error_msgf "Reader exits with %03d" exit)
-    | _, Error exit ->
-      return (R.error_msgf "Writer exits with %03d" exit) )
+    ( fork_and_join
+        (fun () -> run_process fiber0)
+        (fun () -> run_process ~file:(Fpath.to_string temp) (fiber1 dataset))
+      >>= function
+      | Ok (), Ok histogram ->
+        Fmt.pr ">>> %d iteration(s).\n%!" (List.length histogram) ;
+        return (Ok ())
+      | Error exit, _ ->
+        return (R.error_msgf "Reader exits with %03d" exit)
+      | _, Error exit ->
+        return (R.error_msgf "Writer exits with %03d" exit) )
 
 let main multiple_readers dataset () () () =
   Tmp.tmp "index-%s" >>= fun path ->
@@ -105,7 +124,10 @@ let main multiple_readers dataset () () () =
   let kind = match multiple_readers with
     | true  -> `Multiple_consumer_simple_producer
     | false -> `Simple_consumer_simple_producer in
-  Fiber.run (test ~kind dataset path)
+  let path = Fpath.to_string path in
+  match Part.(run closed (create path)) with
+  | _closed, Ok () -> Fiber.run (test ~kind dataset path)
+  | _closed, (Error _ as err) -> err
 
 open Cmdliner
 

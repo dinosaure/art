@@ -24,16 +24,6 @@ typedef enum memory_order {
 #error "C11 atomics are unavailable on this platform."
 #endif
 
-static const memory_order t[] = {
-  memory_order_relaxed,
-  memory_order_seq_cst,
-  memory_order_release,
-  memory_order_acquire,
-  memory_order_acq_rel
-};
-
-/* XXX(dinosaure): we assume non-aligned access to the memory! (x86_64) */
-
 #define memory_uint8_off(src, off) \
   ((uint8_t *) ((uint8_t *) Caml_ba_data_val (src) + Unsigned_long_val (off)))
 
@@ -50,17 +40,17 @@ static const memory_order t[] = {
   ((uint64_t *) ((uint8_t *) Caml_ba_data_val (src) + Unsigned_long_val (off)))
 
 CAMLprim value
-caml_atomic_get_uint8(value memory, value addr, value memory_order)
+caml_atomic_get_uint8(value memory, value addr)
 {
-  uint8_t v = atomic_load_explicit(memory_uint8_off (memory, addr), t[Long_val (memory_order)]) ;
+  uint8_t v = atomic_load_explicit(memory_uint8_off (memory, addr), memory_order_seq_cst) ;
   return Val_long (v) ;
 }
 
 CAMLprim value
-caml_atomic_set_uint8(value memory, value addr, value memory_order, value v)
+caml_atomic_set_uint8(value memory, value addr, value v)
 {
   uint8_t x = Unsigned_long_val (v) ;
-  atomic_store_explicit(memory_uint8_off (memory, addr), x, t[Long_val (memory_order)]) ;
+  atomic_store_explicit(memory_uint8_off (memory, addr), x, memory_order_seq_cst) ;
   return Val_unit ;
 }
 
@@ -78,9 +68,9 @@ caml_atomic_set_uint8(value memory, value addr, value memory_order, value v)
  */
 
 CAMLprim value
-caml_atomic_get_leuintnat(value memory, value addr, value memory_order)
+caml_atomic_get_leuintnat(value memory, value addr)
 {
-  uintnat v = atomic_load_explicit(memory_uintnat_off (memory, addr), t[Long_val (memory_order)]) ;
+  uintnat v = atomic_load_explicit(memory_uintnat_off (memory, addr), memory_order_seq_cst) ;
 #if defined(ART_BIG_ENDIAN) && defined(__ARCH_SIXTYFOUR)
   v = __bswap_64 (v) ;
 #elif defined(ART_BIG_ENDIAN)
@@ -90,7 +80,7 @@ caml_atomic_get_leuintnat(value memory, value addr, value memory_order)
 }
 
 CAMLprim value
-caml_atomic_set_leuintnat(value memory, value addr, value memory_order, value v)
+caml_atomic_set_leuintnat(value memory, value addr, value v)
 {
   uintnat x = Unsigned_long_val (v) ;
 #if defined(ART_BIG_ENDIAN) && defined(ARCH_SIXTYFOUR)
@@ -98,14 +88,14 @@ caml_atomic_set_leuintnat(value memory, value addr, value memory_order, value v)
 #elif defined(ART_BIG_ENDIAN)
   x = __bswap_32 (x) ;
 #endif
-  atomic_store_explicit(memory_uintnat_off (memory, addr), x, t[Long_val (memory_order)]) ;
+  atomic_store_explicit(memory_uintnat_off (memory, addr), x, memory_order_seq_cst) ;
   return Val_unit ;
 }
 
 CAMLprim value
-caml_atomic_get_leuint16(value memory, value addr, value memory_order)
+caml_atomic_get_leuint16(value memory, value addr)
 {
-  uint16_t v = atomic_load_explicit(memory_uint16_off (memory, addr), t[Long_val (memory_order)]) ;
+  uint16_t v = atomic_load_explicit(memory_uint16_off (memory, addr), memory_order_seq_cst) ;
 #if defined(ART_BIG_ENDIAN)
   v = __bswap_16 (v) ;
 #endif
@@ -113,20 +103,20 @@ caml_atomic_get_leuint16(value memory, value addr, value memory_order)
 }
 
 CAMLprim value
-caml_atomic_set_leuint16(value memory, value addr, value memory_order, value v)
+caml_atomic_set_leuint16(value memory, value addr, value v)
 {
   uint16_t x = Unsigned_long_val (v) ;
 #if defined(ART_BIG_ENDIAN)
   x = __bswap_16 (x) ;
 #endif
-  atomic_store_explicit(memory_uint16_off (memory, addr), x, t[Long_val (memory_order)]) ;
+  atomic_store_explicit(memory_uint16_off (memory, addr), x, memory_order_seq_cst) ;
   return Val_unit ;
 }
 
 CAMLprim value
-caml_atomic_get_leuint31(value memory, value addr, value memory_order)
+caml_atomic_get_leuint31(value memory, value addr)
 {
-  uint32_t v = atomic_load_explicit(memory_uint32_off (memory, addr), t[Long_val (memory_order)]) ;
+  uint32_t v = atomic_load_explicit(memory_uint32_off (memory, addr), memory_order_seq_cst) ;
 #if defined(ART_BIG_ENDIAN)
   v = __bswap_32 (v) ;
 #endif
@@ -134,20 +124,20 @@ caml_atomic_get_leuint31(value memory, value addr, value memory_order)
 }
 
 CAMLprim value
-caml_atomic_set_leuint31(value memory, value addr, value memory_order, value v)
+caml_atomic_set_leuint31(value memory, value addr, value v)
 {
   uint32_t x = Unsigned_long_val (v) ;
 #if defined(ART_BIG_ENDIAN)
   x = __bswap_32 (x) ;
 #endif
-  atomic_store_explicit(memory_uint32_off (memory, addr), (x & 0x7fffffff), t[Long_val (memory_order)]) ;
+  atomic_store_explicit(memory_uint32_off (memory, addr), (x & 0x7fffffff), memory_order_seq_cst) ;
   return Val_unit ;
 }
 
 uint64_t
-caml_atomic_get_leuint64(value memory, value addr, value memory_order)
+caml_atomic_get_leuint64(value memory, value addr)
 {
-  uint64_t v = atomic_load_explicit(memory_uint64_off (memory, addr), t[Long_val (memory_order)]) ;
+  uint64_t v = atomic_load_explicit(memory_uint64_off (memory, addr), memory_order_seq_cst) ;
 #if defined(ART_BIG_ENDIAN)
   v = __bswap_64 (v) ;
 #endif
@@ -155,12 +145,12 @@ caml_atomic_get_leuint64(value memory, value addr, value memory_order)
 }
 
 CAMLprim value
-caml_atomic_set_leuint64(value memory, value addr, value memory_order, uint64_t x)
+caml_atomic_set_leuint64(value memory, value addr, uint64_t x)
 {
 #if defined(ART_BIG_ENDIAN)
   x = __bswap_64 (x) ;
 #endif
-  atomic_store_explicit(memory_uint64_off (memory, addr), x, t[Long_val (memory_order)]) ;
+  atomic_store_explicit(memory_uint64_off (memory, addr), x, memory_order_seq_cst) ;
   return Val_unit ;
 }
 
@@ -180,7 +170,7 @@ caml_atomic_set_leuint64(value memory, value addr, value memory_order, uint64_t 
   ((__m128i *) ((uint8_t *) Caml_ba_data_val (src) + Unsigned_long_val (off)))
 
 CAMLprim value
-caml_atomic_get_leuint128(value memory, value addr, value memory_order, value res)
+caml_atomic_get_leuint128(value memory, value addr, value res)
 {
   /* XXX(dinosaure): non-aligned operation. */
   __m128i v = _mm_loadu_si128((const __m128i *) memory_uint128_off (memory, addr)) ;
@@ -196,55 +186,55 @@ caml_atomic_get_leuint128(value memory, value addr, value memory_order, value re
 }
 
 CAMLprim value
-caml_atomic_fetch_add_leuint16(value memory, value addr, value memory_order, value v)
+caml_atomic_fetch_add_leuint16(value memory, value addr, value v)
 {
   intnat res;
 #if defined(ART_BIG_ENDIAN)
 #error "atomic_fetch_add on big-endian is not supported."
 #else
-  res = atomic_fetch_add_explicit(memory_uint16_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
+  res = atomic_fetch_add_explicit(memory_uint16_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
 #endif
   return Val_long (res) ;
 }
 
 CAMLprim value
-caml_atomic_fetch_add_leuintnat(value memory, value addr, value memory_order, value v)
+caml_atomic_fetch_add_leuintnat(value memory, value addr, value v)
 {
   intnat res;
 #if defined(ART_BIG_ENDIAN)
 #error "atomic_fetch_add on big-endian is not supported."
 #elif defined(ARCH_SIXTYFOUR)
-  res = atomic_fetch_add_explicit(memory_uint64_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
+  res = atomic_fetch_add_explicit(memory_uint64_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
 #else
-  res = atomic_fetch_add_explicit(memory_uint32_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
+  res = atomic_fetch_add_explicit(memory_uint32_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
 #endif
   return Val_long (res) ;
 }
 
 CAMLprim value
-caml_atomic_fetch_sub_leuintnat(value memory, value addr, value memory_order, value v)
+caml_atomic_fetch_sub_leuintnat(value memory, value addr, value v)
 {
   intnat res;
 #if defined(ART_BIG_ENDIAN)
 #error "atomic_fetch_sub on big-endian is not supported."
 #elif defined(ARCH_SIXTYFOUR)
-  res = __atomic_fetch_sub(memory_uint64_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
+  res = __atomic_fetch_sub(memory_uint64_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
 #else
-  res = __atomic_fetch_sub(memory_uint32_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
+  res = __atomic_fetch_sub(memory_uint32_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
 #endif
   return Val_long (res) ;
 }
 
 CAMLprim value
-caml_atomic_fetch_or_leuintnat(value memory, value addr, value memory_order, value v)
+caml_atomic_fetch_or_leuintnat(value memory, value addr, value v)
 {
   intnat res;
 #if defined(ART_BIG_ENDIAN)
 #error "atomic_fetch_or on big-endian is not supported."
 #elif defined(ARCH_SIXTYFOUR)
-  res = __atomic_fetch_or(memory_uint64_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
+  res = __atomic_fetch_or(memory_uint64_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
 #else
-  res = __atomic_fetch_or(memory_uint32_off (memory, addr), Unsigned_long_val (v), t[Long_val (memory_order)]) ;
+  res = __atomic_fetch_or(memory_uint32_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
 #endif
   return Val_long (res) ;
 }
@@ -263,27 +253,23 @@ caml_pause_intrinsic(__unit ())
 }
 
 CAMLprim value
-caml_atomic_compare_exchange_strong_leuintnat(value memory, value addr, value expected, value desired, value memory_order)
+caml_atomic_compare_exchange_strong_leuintnat(value memory, value addr, value expected, value desired)
 {
   uintnat *v = memory_uintnat_off (memory, addr) ;
   uintnat v_expected = Unsigned_long_val (Field(expected, 0)) ;
-  int m0 = t[Long_val (Field(memory_order, 0))] ;
-  int m1 = t[Long_val (Field(memory_order, 1))] ;
 
-  intnat res = __atomic_compare_exchange_n(v, &v_expected, Unsigned_long_val (desired), 0, m0, m1) ;
+  intnat res = __atomic_compare_exchange_n(v, &v_expected, Unsigned_long_val (desired), 0, memory_order_seq_cst, memory_order_seq_cst) ;
   Field(expected, 0) = Val_long (v_expected) ;
   return Val_bool (res) ;
 }
 
 CAMLprim value
-caml_atomic_compare_exchange_weak_leuintnat(value memory, value addr, value expected, value desired, value memory_order)
+caml_atomic_compare_exchange_weak_leuintnat(value memory, value addr, value expected, value desired)
 {
   uintnat *v = memory_uintnat_off (memory, addr) ;
   uintnat v_expected = Unsigned_long_val (Field(expected, 0)) ;
-  int m0 = t[Long_val (Field(memory_order, 0))] ;
-  int m1 = t[Long_val (Field(memory_order, 1))] ;
 
-  intnat res = __atomic_compare_exchange_n(v, &v_expected, Unsigned_long_val (desired), 1, m0, m1) ;
+  intnat res = __atomic_compare_exchange_n(v, &v_expected, Unsigned_long_val (desired), 1, memory_order_seq_cst, memory_order_seq_cst) ;
   Field(expected, 0) = Val_long (v_expected) ;
   return Val_bool (res) ;
 }
@@ -303,6 +289,80 @@ caml_get_leintnat(value memory, value addr)
   return Val_long(memory_uint32_off (memory, addr)[0]) ;
 #endif
 }
+
+#ifdef ART_CLWB
+void clwb(const void *ptr) {
+  asm volatile ("clwb %0" : "+m" (ptr));
+}
+
+void clwb_range(const void *ptr, uint64_t len) {
+  uintptr_t start = (uintptr_t) ptr & ~(64 - 1);
+  for (; start < (uintptr_t)ptr + len; start += 64) {
+    clwb((void *) start);
+  }
+}
+
+void sfence() {
+  asm volatile ("sfence":::"memory");
+}
+
+CAMLprim value
+caml_persist(value memory, value addr, value len)
+{
+  sfence();
+  clwb_range(memory_uint8_off (memory, addr), Long_val (len));
+  sfence();
+  return Val_unit ;
+}
+#elif ART_CLFLUSHOPT
+void clflushopt(const void *ptr) {
+  asm volatile ("clflushopt %0" : "+m" (ptr));
+}
+
+void clflushopt_range(const void *ptr, uint64_t len) {
+  uintptr_t start = (uintptr_t) ptr & ~(64 - 1);
+  for (; start < (uintptr_t)ptr + len; start += 64) {
+    clflushopt((void *) start);
+  }
+}
+
+void sfence() {
+  asm volatile ("sfence":::"memory");
+}
+
+CAMLprim value
+caml_persist(value memory, value addr, value len)
+{
+  sfence();
+  clflushopt_range(memory_uint8_off (memory, addr), Long_val (len));
+  sfence();
+  return Val_unit ;
+}
+#else /* #elif ART_CLFLUSH? */
+void clflush(const void *ptr) {
+  asm volatile ("clflush %0" : "+m" (ptr));
+}
+
+void clflush_range(const void *ptr, uint64_t len) {
+  uintptr_t start = (uintptr_t) ptr & ~(64 - 1);
+  for (; start < (uintptr_t)ptr + len; start += 64) {
+    clflush((void *) start);
+  }
+}
+
+void mfence() {
+  asm volatile ("mfence":::"memory");
+}
+
+CAMLprim value
+caml_persist(value memory, value addr, value len)
+{
+  mfence();
+  clflush_range(memory_uint8_off (memory, addr), Long_val (len));
+  mfence();
+  return Val_unit ;
+}
+#endif
 
 #include <caml/alloc.h>
 #include <caml/memory.h>
@@ -335,45 +395,4 @@ caml_to_memory(value vbigarray)
   b->flags = CAML_BA_UINT8 | CAML_BA_C_LAYOUT | CAML_BA_MAPPED_FILE ;
 
   CAMLreturn(vbigarray) ;
-}
-
-// XXX(dinosaure): We assume a 64-bits architecture (TODO)
-CAMLprim value
-caml_rdtsc(__unit ())
-{
-  unsigned int hi, lo ;
-  asm volatile ("rdtsc" : "=a" (lo), "=d" (hi)) ;
-  return Val_long ((((intnat) hi) << 32) | lo) ;
-}
-
-// XXX(dinosaure): works on all targets? *)
-CAMLprim value
-caml_clflush(value vptr)
-{
-  volatile char* ptr = (char *) ((intnat) Long_val (vptr)) ;
-#ifdef CLFLUSH
-  asm volatile("clflush %0" : "+m" (*(volatile char *)ptr));
-#elif CLFLUSH_OPT
-  asm volatile(".byte 0x66; clflush %0" : "+m" (*(volatile char *)ptr));
-#elif CLWD
-  asm volatile(".byte 0x66; xsaveopt %0" : "+m" (*(volatile char *)ptr));
-#endif
-  return Val_unit ;
-}
-
-CAMLprim value
-caml_sfence(__unit ())
-{
-  // TODO(dinosaure): replace it by mfence on AMD... [clflush] is only ordered by
-  // [mfence] on AMD. *)
-  asm volatile("sfence" ::: "memory") ;
-  return Val_unit ;
-}
-
-CAMLprim value
-caml_stream_int(value memory, value addr, value v)
-{
-  long unsigned int * ptr = memory_uint64_off(memory, addr) ;
-  _mm_stream_si64 ((long long unsigned int *) ptr, Unsigned_long_val (v)) ;
-  return Val_unit ;
 }
