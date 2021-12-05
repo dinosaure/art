@@ -25,7 +25,10 @@ cpuid(unsigned func, unsigned subfunc, unsigned cpuinfo[4])
   __cpuidex(cpuinfo, func, subfunc)
 }
 #else
-#error Unsupported compiler
+// XXX(dinosaure): [aarch64] branch
+static inline void
+cpuid(unsigned func, unsigned subfunc, unsigned cpuinfo[4])
+{ }
 #endif
 
 #ifndef bit_CLFLUSH
