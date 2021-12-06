@@ -1,6 +1,8 @@
 open Rowex
+module Hashset = Hashset
 
 type memory = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+type truncate = readers:int Hashset.t -> memory -> len:int64 -> memory
 
 external persist
   : memory -> int -> int -> unit
@@ -98,9 +100,10 @@ external to_memory
 
 type 'c mmu =
   { mutable brk : int
-  ; memory : memory
+  ; mutable memory : memory
   ; root : 'c Addr.t
   ; ipc : Ipc.t
+  ; truncate : truncate
   ; free : (int, free_cell list) Hashtbl.t
   ; keep : (int, keep_cell list) Hashtbl.t
   ; readers : int Hashset.t }
@@ -123,23 +126,24 @@ let append_free_cell mmu ~len ~addr ~time =
 
 let size_of_word = Sys.word_size / 8
 
-let ro ipc memory =
+let ro ~truncate ipc memory =
   let root = atomic_get_leuintnat memory size_of_word in
   let brk = atomic_get_leuintnat memory 0 in
-  { brk; memory; root= Addr.of_int_to_rdonly root; ipc
+  { brk; memory; root= Addr.of_int_to_rdonly root; ipc; truncate
   ; free= Hashtbl.create 0x100
   ; keep= Hashtbl.create 0x100
   ; readers= Hashset.create 0x100 }
 
-let rdwr ipc memory =
+let rdwr ~truncate ipc memory =
   let root = atomic_get_leuintnat memory size_of_word in
   let brk = atomic_get_leuintnat memory 0 in
-  { brk; memory; root= Addr.of_int_to_rdwr root; ipc
+  { brk; memory; root= Addr.of_int_to_rdwr root; ipc; truncate
   ; free= Hashtbl.create 0x100
   ; keep= Hashtbl.create 0x100
   ; readers= Hashset.create 0x100 }
 
 let ipc { ipc; _ } = ipc
+let unsafe_set_memory mmu memory = mmu.memory <- memory
 
 external bigarray_unsafe_set_uint8  : memory -> int -> int -> unit = "%caml_ba_set_1"
 external bigarray_unsafe_set_uint32 : memory -> int -> int32 -> unit = "%caml_bigstring_set32"
@@ -262,14 +266,14 @@ include Make(S)
 let find { root; _ } key = find root key
 let insert { root; _ } key value = insert root key value
 
-let make ipc memory =
+let make ~truncate ipc memory =
   let ( >>= ) x f = S.bind x f in
   S.atomic_set (Addr.of_int_to_wronly 0) LEInt (size_of_word * 2) >>= fun () ->
   (Unsafe_set_brk (size_of_word * 2)) >>= fun () ->
   make () >>= fun root ->
   S.atomic_set (Addr.of_int_to_wronly size_of_word) LEInt (root :> int) >>= fun () ->
   S.return
-    { brk= size_of_word * 2; memory; root; ipc
+    { brk= size_of_word * 2; memory; root; ipc; truncate
     ; free= Hashtbl.create 0x100
     ; keep= Hashtbl.create 0x100
     ; readers= Hashset.create 0x100 }
@@ -301,16 +305,30 @@ let collect ({ ipc; _ } as mmu) =
   mark_and_sweep ()
 
 let older_reader { ipc; _ } =
-  Int64.to_int (Ipc.dequeue ipc)
+  let time = Ipc.dequeue ipc in
+  Ipc.enqueue ipc time (* XXX(dinosaure): don't forget reader. *) ; Int64.to_int time
 
 let _header_owner = Rowex._header_owner
+let _chunk = 1048576
 
 (* TODO(dinosaure): a special case exists when we don't have
    a ringbuffer ([Bigarray.Array1.dim (snd mmu.ringbuffer)].
    We should delete such case and use properly a ringbuffer
    even if we have one writer/one reader. *)
 
-let ralloc mmu ~kind len payloads =
+let rec resize_and_ralloc mmu ~kind requested payloads =
+  let brk = 1 + ((mmu.brk - 1) / 8) in
+  let brk = brk * 8 in
+  let f _ipc =
+    let len' = Bigarray.Array1.dim mmu.memory + _chunk in
+    let memory = mmu.truncate ~readers:mmu.readers mmu.memory ~len:(Int64.of_int len') in
+    mmu.memory <- memory in
+  Ipc.with_lock ~f mmu.ipc ;
+  if brk + requested <= Bigarray.Array1.dim mmu.memory
+  then ralloc mmu ~kind requested payloads
+  else raise Out_of_memory
+
+and ralloc mmu ~kind len payloads =
   let brk = 1 + ((mmu.brk - 1) / 8) in
   let brk = brk * 8 in (* XXX(dinosaure): align memory. *)
   Logs.debug (fun m -> m "brk:%016x, allocate %d byte(s)" brk len) ;
@@ -326,7 +344,7 @@ let ralloc mmu ~kind len payloads =
        ; Logs.debug (fun m -> m "brk:%016x" (brk + len))
        ; mmu.brk <- brk + len
        ; Addr.of_int_to_rdwr brk )
-  else raise Out_of_memory (* TODO(dinosaure): [ftruncate]. *)
+  else resize_and_ralloc mmu ~kind len payloads
 
 (* XXX(dinosaure): second chance or allocate *)
 let alloc mmu ~kind len payloads =

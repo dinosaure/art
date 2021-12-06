@@ -38,6 +38,9 @@
 (library
  (name part)
  (modules part)
+ (foreign_stubs
+  (language c)
+  (names msync))
  (libraries rresult mmap persistent))
 
 (rule
