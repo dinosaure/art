@@ -66,3 +66,8 @@ let create path =
   with Unix.Unix_error (err, f, v) ->
        R.error_msgf "%s(%s): %s" f v (Unix.error_message err)
      | exn -> raise exn
+
+let with_lock ~f t =
+  Unix.lockf t Unix.F_LOCK 0 ;
+  let v = f t in
+  Unix.lockf t Unix.F_ULOCK 0 ; v

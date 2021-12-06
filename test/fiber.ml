@@ -148,6 +148,40 @@ let restart_throttle () =
     Ivar.fill (Queue.pop waiting_for_slot) ()
   done
 
+let signals =
+  [ Sys.sigabrt, "SIGABRT"
+  ; Sys.sigalrm, "SIGALRM"
+  ; Sys.sigfpe,  "SIGFPE"
+  ; Sys.sighup,  "SIGHUP"
+  ; Sys.sigill,  "SIGILL"
+  ; Sys.sigint,  "SIGINT"
+  ; Sys.sigkill, "SIGKILL"
+  ; Sys.sigpipe, "SIGPIPIE"
+  ; Sys.sigquit, "SIGQUIT"
+  ; Sys.sigsegv, "SIGSEGV"
+  ; Sys.sigterm, "SIGTERM"
+  ; Sys.sigusr1, "SIGUSR1"
+  ; Sys.sigusr2, "SIGUSR2"
+  ; Sys.sigchld, "SIGCHLD"
+  ; Sys.sigcont, "SIGCONT"
+  ; Sys.sigstop, "SIGSTOP"
+  ; Sys.sigtstp, "SIGTSTP"
+  ; Sys.sigttin, "SIGTTIN"
+  ; Sys.sigttou, "SIGTTOU"
+  ; Sys.sigvtalrm, "SIGVTALRM"
+  ; Sys.sigprof, "SIGPROF"
+  ; Sys.sigbus,  "SIGBUS"
+  ; Sys.sigpoll, "SIGPOLL"
+  ; Sys.sigsys,  "SIGSYS"
+  ; Sys.sigtrap, "SIGTRAP"
+  ; Sys.sigurg,  "SIGURG"
+  ; Sys.sigxcpu, "SIGXCPU"
+  ; Sys.sigxfsz, "SIGXFSZ" ]
+
+let pp_signal ppf signal = match List.assoc_opt signal signals with
+  | Some str -> Format.fprintf ppf "%s" str
+  | None -> Format.fprintf ppf "%d" signal
+
 let run_process ?file prgn =
   throttle () >>= fun () ->
   let fd, pid = create_process ?file prgn in
@@ -163,7 +197,8 @@ let run_process ?file prgn =
   | Unix.WEXITED n ->
     safe_close fd ;
     return (Error n)
-  | Unix.WSIGNALED _ ->
+  | Unix.WSIGNALED signal ->
+    Log.warn (fun m -> m "The processus %6d terminated with a signal: %a." pid pp_signal signal) ; 
     safe_close fd ;
     return (Error 255)
   | Unix.WSTOPPED _ -> assert false

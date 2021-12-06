@@ -86,9 +86,9 @@ let test01 =
     Alcotest.(check int) "abc"   v0 1 ;
     Alcotest.(check int) "ab"    v1 2 ;
     Alcotest.(check int) "abcde" v2 3 ;
-    close in
+    return () in
   match Part.run state th0 with
-  | _closed, () -> ()
+  | _not_closed, () -> ()
   | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
   | exception Not_found -> Alcotest.failf "Key not found"
 
@@ -120,9 +120,9 @@ let test02 =
     Alcotest.(check int) "a2" v2 2 ;
     Alcotest.(check int) "a3" v3 3 ;
     Alcotest.(check int) "a4" v4 4 ;
-    close in
+    return () in
   match Part.run state th0 with
-  | _closed, () -> ()
+  | _not_closed, () -> ()
   | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
   | exception Not_found -> Alcotest.failf "Key not found"
 
@@ -146,14 +146,14 @@ let test03 =
         go0 r in
     let* () = go0 vs in
     let rec go1 = function
-      | [] -> close
+      | [] -> return ()
       | (k, v) :: r ->
         let* v' = find (Rowex.key k) in
         Alcotest.(check int) (Fmt.str "%S" k) v' v ;
         go1 r in
     go1 vs in
   match Part.run state th0 with
-  | _closed, () -> ()
+  | _not_closed, () -> ()
   | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
   | exception Not_found -> Alcotest.failf "Key not found"
 
@@ -174,9 +174,9 @@ let test04 =
     let* v1 = find (Rowex.key "baliminimalist@yahoo.com") in
     Alcotest.(check int) "bali@tuguhotels.com" v0 6 ;
     Alcotest.(check int) "baliminimalist@yahoo.com" v1 7 ;
-    close in
+    return () in
   match Part.run state th0 with
-  | _closed, () -> ()
+  | _not_closed, () -> ()
   | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
   | exception Not_found -> Alcotest.failf "Key not found"
 
@@ -192,9 +192,9 @@ let test05 =
     Alcotest.(check int) "bali@tuguhotels.com" v0 6 ;
     Alcotest.(check int) "baliminimalist@yahoo.com" v1 7 ;
     Alcotest.(check int) "bliss@thebale.com" v2 8 ;
-    close in
+    return () in
   match Part.run state th0 with
-  | _closed, () -> ()
+  | _not_closed, () -> ()
   | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
   | exception Not_found -> Alcotest.failf "Key not found"
 
@@ -278,14 +278,14 @@ let test06 =
     Alcotest.(check int) "garudawisatajaya@indo.net.id" v0 22 ;
     Alcotest.(check int) "garudawisata@indo.net.id" v1 (-1) ;
     let rec go1 idx = function
-      | [] -> close
+      | [] -> return ()
       | key :: r ->
         let* v' = find (Rowex.key key) in
         Alcotest.(check int) key idx v' ;
         go1 (succ idx) r in
     go1 0 elts in
   match Part.run state th0 with
-  | _closed, () -> ()
+  | _not_closed, () -> ()
   | exception Rowex.Duplicate -> Alcotest.failf "Insert a duplicate into the index"
   | exception Not_found -> Alcotest.failf "Key not found"
 

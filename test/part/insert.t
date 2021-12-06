@@ -9,7 +9,7 @@ tests on part.insert
   Usage: insert [OPTION]... ARG ARG ARG
   Try `insert --help' for more information.
   [124]
-  $ rm rwx.idx.socket
+  $ rm rwx.idx.socket rwx.idx-truncate.socket
   $ part.insert rwx.idx test 42
   insert: rwx.idx (or its socket) does not exist.
   Usage: insert [OPTION]... ARG ARG ARG
