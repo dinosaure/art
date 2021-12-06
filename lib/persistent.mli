@@ -1,7 +1,21 @@
 open Rowex
 
 type memory = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
 type truncate = readers:int Hashset.t -> memory -> len:int64 -> memory
+(** The type of functions to {i truncate}.
+
+    [Persistent] implements its own allocator and the {!type:mmu} can request a
+    larger file {i via} [truncate]. Be aware that, at this stage, we don't have
+    any synchronization between the writer and readers.
+
+    An usual call to [Unix.truncate] can lead a [SIGSEGV] to other processes.
+    The user must implement a synchronization mechanism where readers must
+    stop what they do, let the writer [truncate] the file and ask readers to
+    {i remap} the file.
+
+    {b Note}: {!val:ro} does not need an implementation of [truncate]. Only
+    {!val:rdwr} is able (via {!val:insert}) to call [truncate]. *)
 
 type 'a t
 

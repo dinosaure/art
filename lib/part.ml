@@ -45,14 +45,41 @@ let create ?(len= 1048576) path = Create (path, len)
 let ( let* ) = bind
 
 (* XXX(dinosaure): an explanation is needed between [truncate] and [remap].
- * [truncate] updates the size of the index file and invalidate any current readers
- * then about their [memory] values.
+ * [truncate] updates the size of the index file and invalidate any current
+ * readers then about their [memory] values.
  *
- * To solve that, we use a signal from the writer to ask to reader to [remap] their
- * [memory] according to the following [Unix.LargeFile.ftruncate]. I'm sure that
- * such solution is not good but it seems to work at least.
+ * To solve that, we use a signal from the writer to ask to reader to [remap]
+ * their [memory] according to the following [Unix.LargeFile.ftruncate]. To
+ * proceed:
+ * + [Persistent] gives to us alive readers
+ * + the writer acquire the lock on the [ipc] (so a new reader can **not**
+ *   appear)
+ * + the writer send a signal to readers
+ * + readers are already configured to receive the signal - see [Open] with
+ *   [Reader]
+ * + [remap] on readers is called and interrupt anything
+ * + a reader will send to the writer (via [trc]) that is ready to [remap]
+ * + a reader wants to acquire the lock on [ipc]
+ * + the writer waiting all readers (and consume [trc])
+ * + it applies [msync] (to ensure that everything is done)
+ * + it truncates the file
+ * + it reloads the memory with the new size and return the new address
+ *   to [Persistent]
+ * + it releases the lock on [ipc]
+ * + readers will start a battle to acquire first the lock on [ipc]
+ * + one reader [remap] the file truncated
+ * + this reader will unsafely set its memory address to the new one
+ * + and it releases the lock to let other readers to do the same
  *
- * But we should find something more portable and well-defined than that. *)
+ * TODO(dinosaure): signal is bad
+ * TODO(dinosaure): OCaml does not tell to us who sent the signal but it help
+ * us to implement a ping-pong mechanism between writer and readers instead of
+ * a new FIFO [%s-truncate.socket].
+ * TODO(dinosaure): by design, [msync] is probably not needed
+ *
+ * NOTE(dinosaure): [remap] does not do padding (as [Open]) because it
+ * assumes that [Open] does.
+ *)
 
 let page_size = 4096 (* TODO(dinosaure): replace it by a call. *)
 
@@ -111,17 +138,20 @@ let rec run
   | Return x, _ -> s, x
   | Bind (m, f), _ -> let s, x = run s m in run s (f x)
   | Find key, Opened (mmu, capabilities, fd) ->
-    Opened (mmu, capabilities, fd), Persistent.(run mmu (Persistent.find mmu key))
+    Opened (mmu, capabilities, fd),
+    Persistent.(run mmu (Persistent.find mmu key))
   | Insert (key, value), Opened (mmu, capabilities, fd) ->
-    Opened (mmu, capabilities, fd), Persistent.(run mmu (insert mmu key value))
+    Opened (mmu, capabilities, fd),
+    Persistent.(run mmu (insert mmu key value))
   | Open (Reader uid, path), Closed ->
     let ipc = Ipc.connect (Fmt.str "%s.socket" path) in
     let trc = Ipc.connect (Fmt.str "%s-truncate.socket" path) in
     let f _ipc =
       let fd = Unix.openfile path Unix.[ O_RDWR ] 0o644 in
-      let len = ((Unix.fstat fd).st_size + page_size) / page_size in (* XXX(dinosaure): padding. *)
+      let len = ((Unix.fstat fd).st_size + page_size) / page_size in
       let len = len * page_size in
-      let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
+      let memory = Mmap.V1.map_file fd
+        ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
       let memory = Bigarray.array1_of_genarray memory in
       Unix.close fd ; memory in
     let memory = Ipc.with_lock ~f ipc in
@@ -133,27 +163,33 @@ let rec run
     Ipc.enqueue ipc uid ; Closed, ()
   | Open (Writer, path), Closed ->
     let fd = Unix.openfile path Unix.[ O_RDWR ] 0o644 in
-    let len = ((Unix.fstat fd).st_size + page_size) / page_size in (* XXX(dinosaure): padding. *)
+    let len = ((Unix.fstat fd).st_size + page_size) / page_size in
     let len = len * page_size in
-    let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
+    let memory = Mmap.V1.map_file fd
+      ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
     let memory = Bigarray.array1_of_genarray memory in
     let ipc = Ipc.connect (Fmt.str "%s.socket" path) in
     let trc = Ipc.connect (Fmt.str "%s-truncate.socket" path) in
-    let mmu = Persistent.rdwr ~truncate:(truncate ipc trc (Unix_file_descr fd)) ipc memory in
+    let mmu = Persistent.rdwr
+      ~truncate:(truncate ipc trc (Unix_file_descr fd)) ipc memory in
     Opened (mmu, Writer, Unix_file_descr fd), ()
   | Create (path, len), Closed ->
     let fd = Unix.openfile path Unix.[ O_CREAT; O_RDWR ] 0o644 in
     let _  = Unix.lseek fd len Unix.SEEK_SET in
     let len = (len + page_size) / page_size in
     let len = len * page_size in
-    let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
+    let memory = Mmap.V1.map_file fd
+      ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
     let memory = Bigarray.array1_of_genarray memory in
-    ( match Ipc.create (Fmt.str "%s.socket" path), Ipc.create (Fmt.str "%s-truncate.socket" path) with
+    ( match Ipc.create (Fmt.str "%s.socket" path),
+            Ipc.create (Fmt.str "%s-truncate.socket" path) with
     | Ok (), Ok () ->
       let ipc = Ipc.connect (Fmt.str "%s.socket" path) in
       let trc = Ipc.connect (Fmt.str "%s-truncate.socket" path) in
-      let _mmu = Persistent.rdwr ~truncate:(truncate ipc trc None) ipc memory in
-      let _mmu = Persistent.run _mmu (Persistent.make ~truncate:(truncate ipc trc None) ipc memory) in
+      let _mmu = Persistent.rdwr
+        ~truncate:(truncate ipc trc None) ipc memory in
+      let _mmu = Persistent.run _mmu
+        (Persistent.make ~truncate:(truncate ipc trc None) ipc memory) in
       Ipc.close ipc ; Unix.close fd ; Closed, Ok ()
     | Error err, _ | _, Error err -> Closed, Error err )
   | Close, Opened (_mmu, Writer, Unix_file_descr fd) ->
