@@ -1,3 +1,5 @@
+let () = Printexc.record_backtrace true
+
 exception Duplicate
 
 let (.![]) = String.unsafe_get
@@ -306,6 +308,10 @@ let _header_compact_count = _header_count + 2
 
 let _header_length = _header_compact_count + 2
 
+let () = match Sys.word_size = 64 with
+  | true  -> assert (_header_length = 32)
+  | false -> assert (_header_length = 24)
+
 let _bits_kind = Sys.word_size - 3
 
 let _n4_kind   = 0b00
@@ -394,22 +400,26 @@ module Make (S : S) = struct
 
   (**** FIND CHILD ****)
 
+  let _n4_align_length =
+    let len = ((_header_length + 4) + Addr.length) / Addr.length in
+    (len * Addr.length) - (_header_length + 4)
+
   let n4_find_child addr k =
     let* _0 = atomic_get Addr.(addr + _header_length + 0) Value.int8 in
     if _0 = k
-    then atomic_get Addr.(addr + _header_length + 4 + (Addr.length * 0))
+    then atomic_get Addr.(addr + _header_length + 4 + _n4_align_length + (Addr.length * 0))
         Value.addr_rd else
     let* _1 = atomic_get Addr.(addr + _header_length + 1) Value.int8 in
     if _1 = k
-    then atomic_get Addr.(addr + _header_length + 4 + (Addr.length * 1))
+    then atomic_get Addr.(addr + _header_length + 4 + _n4_align_length + (Addr.length * 1))
         Value.addr_rd else
     let* _2 = atomic_get Addr.(addr + _header_length + 2) Value.int8 in
     if _2 = k
-    then atomic_get Addr.(addr + _header_length + 4 + (Addr.length * 2))
+    then atomic_get Addr.(addr + _header_length + 4 + _n4_align_length + (Addr.length * 2))
         Value.addr_rd else
     let* _3 = atomic_get Addr.(addr + _header_length + 3) Value.int8 in
     if _3 = k
-    then atomic_get Addr.(addr + _header_length + 4 + (Addr.length * 3))
+    then atomic_get Addr.(addr + _header_length + 4 + _n4_align_length + (Addr.length * 3))
         Value.addr_rd else
       ( Log.debug (fun m -> m "No child for %02x into N4" k)
       ; return Addr.null )
@@ -470,7 +480,7 @@ module Make (S : S) = struct
           (succ idx) max
   [@@inline]
 
-  let n4_any_child addr   = _node_any_child addr ~header:4   Addr.null 0 4
+  let n4_any_child addr   = _node_any_child addr ~header:(4 + _n4_align_length) Addr.null 0 4
   let n16_any_child addr  = _node_any_child addr ~header:16  Addr.null 0 16
   let n48_any_child addr  = _node_any_child addr ~header:256 Addr.null 0 48
   let n256_any_child addr = _node_any_child addr ~header:0   Addr.null 0 256
@@ -581,7 +591,8 @@ module Make (S : S) = struct
       fprintf ppf "{:leaf @[<hov>key= %S;@ value= %d;@] }" key value
     else
       let* n, header = get_type addr >>| function
-        | 0 -> 4, 4 | 1 -> 16, 16 | 2 -> 48, 256 | _ -> 256, 0 in
+        | 0 -> 4, 4 + _n4_align_length
+        | 1 -> 16, 16 | 2 -> 48, 256 | _ -> 256, 0 in
       let* () = fprintf ppf "{:node @[<hov>hdr= @[<hov>" in
       let* () = pp_record ppf addr in
       let* () = fprintf ppf "@];@ key= @[<hov>" in
@@ -624,7 +635,9 @@ module Make (S : S) = struct
     | 2 ->
        Log.debug (fun m -> m "find_child_n48 node %c" chr) ;
        n48_find_child  addr k
-    | 3 -> n256_find_child addr k
+    | 3 ->
+       Log.debug (fun m -> m "find_child_n256 node %c" chr) ;
+       n256_find_child addr k
     | _ -> assert false
 
   let rec _check_prefix ~key ~key_len ~prefix ~level idx max =
@@ -820,7 +833,7 @@ module Make (S : S) = struct
 
   [@@@warning "+37"]
 
-  let _sizeof_n4 = _header_length + 4 + (4 * Addr.length)
+  let _sizeof_n4 = _header_length + 4 + _n4_align_length + (4 * Addr.length)
   let _sizeof_n16 = _header_length + 16 + (16 * Addr.length)
   let _sizeof_n48 = _header_length + 256 + (48 * Addr.length)
   let _sizeof_n256 = _header_length + (256 * Addr.length)
@@ -933,11 +946,11 @@ module Make (S : S) = struct
             Value.int8 k in
         let* () = persist addr ~len:_sizeof_n4 in
         let* () = atomic_set
-            Addr.(to_wronly (addr + _header_length + 4
+            Addr.(to_wronly (addr + _header_length + 4 + _n4_align_length
                              + (compact_count * Addr.length)))
             Value.addr_rd value in
         let* () = persist
-            Addr.(to_wronly (addr + _header_length + 4
+            Addr.(to_wronly (addr + _header_length + 4 + _n4_align_length
                              + (compact_count * Addr.length)))
             ~len:Addr.length in
         return true
@@ -946,7 +959,7 @@ module Make (S : S) = struct
             Addr.(addr + _header_length + compact_count)
             Value.int8 k in
         let* () = atomic_set
-            Addr.(addr + _header_length + 4 + (compact_count * Addr.length))
+            Addr.(addr + _header_length + 4 + _n4_align_length + (compact_count * Addr.length))
             Value.addr_rd value in
         return true
 
@@ -1012,9 +1025,9 @@ module Make (S : S) = struct
     then
       let* key = atomic_get Addr.(addr + _header_length + i) Value.int8 in
       let* child = atomic_get
-          Addr.(addr + _header_length + 4 + (i * Addr.length)) Value.addr_rd in
+          Addr.(addr + _header_length + 4 + _n4_align_length + (i * Addr.length)) Value.addr_rd in
       if not (Addr.is_null child) && key = k
-      then atomic_set Addr.(addr + _header_length + 4 + (i * Addr.length))
+      then atomic_set Addr.(addr + _header_length + 4 + _n4_align_length + (i * Addr.length))
           Value.addr_rd ptr
       else _n4_update_child addr k ptr (succ i)
     else assert false (* XXX(dinosaure): impossible or integrity problem! *)
@@ -1076,6 +1089,7 @@ module Make (S : S) = struct
 
   let _n4_ks = String.make 4 '\000'
   let _n4_vs = String.concat "" (List.init 4 (const string_of_null_addr))
+  let _n4_align = String.make _n4_align_length '\xff'
 
   let alloc_n4 ~prefix:p ~prefix_count ~level =
     let prefix = Bytes.make 4 '\000' in
@@ -1086,7 +1100,7 @@ module Make (S : S) = struct
     let l = leint31_to_string level in
     allocate ~kind:`Node
       [ Bytes.unsafe_to_string prefix; prefix_count; k; o; l; _count
-      ; _compact_count; _n4_ks; _n4_vs ]
+      ; _compact_count; _n4_ks; _n4_align; _n4_vs ]
       ~len:_sizeof_n4 >>| n4
 
   let _n16_ks = String.make 16 '\000'
@@ -1139,7 +1153,7 @@ module Make (S : S) = struct
     if i = compact_count
     then return ()
     else
-      let* value = atomic_get Addr.(n4 + _header_length + 4 + (i * Addr.length))
+      let* value = atomic_get Addr.(n4 + _header_length + 4 + _n4_align_length + (i * Addr.length))
           Value.addr_rd in
       match Addr.is_null value with
       | true  -> _copy_n4_into_n16 ~compact_count n4 n16 (succ i)
@@ -1168,7 +1182,7 @@ module Make (S : S) = struct
     if i = 4
     then return ()
     else
-      let* value = atomic_get Addr.(nx + _header_length + 4 + (i * Addr.length))
+      let* value = atomic_get Addr.(nx + _header_length + 4 + _n4_align_length + (i * Addr.length))
           Value.addr_rd in
       match Addr.is_null value with
       | true  -> _copy_n4_into_n4 nx ny (succ i)
@@ -1271,7 +1285,7 @@ module Make (S : S) = struct
           let* () = write_unlock p in
           let* () = write_unlock_and_obsolete addr in
           let* uid = atomic_get Addr.(addr + _header_owner) Value.leintnat in
-          collect addr ~len:(_header_length + 4 + (Addr.length * 4)) ~uid )
+          collect addr ~len:(_header_length + 4 + _n4_align_length + (Addr.length * 4)) ~uid )
 
   let _insert_grow_n16_n48 (N16 addr as n16) p k kp value need_to_restart =
     let* inserted = add_child_n16 n16 k value true in
@@ -1328,7 +1342,7 @@ module Make (S : S) = struct
     (* XXX(dinosaure): assert (_ = true); *)
     let* () = write_lock_or_restart p need_to_restart in
     if !need_to_restart
-    then ( let* () = delete addr' (_header_length + 4 + (Addr.length * 4)) in
+    then ( let* () = delete addr' (_header_length + 4 + _n4_align_length + (Addr.length * 4)) in
            write_unlock addr )
     else
       let* () = persist addr' ~len:_sizeof_n4 in
@@ -1336,7 +1350,7 @@ module Make (S : S) = struct
       let* () = write_unlock p in
       let* () = write_unlock_and_obsolete addr in
       let* uid = atomic_get Addr.(addr + _header_owner) Value.leintnat in
-      collect addr ~len:(_header_length + 4 + (Addr.length * 4)) ~uid
+      collect addr ~len:(_header_length + 4 + _n4_align_length + (Addr.length * 4)) ~uid
 
   let insert_compact_n16 (N16 addr as n16) p k kp value need_to_restart =
     let* prefix, prefix_count = get_prefix addr in
@@ -1583,6 +1597,7 @@ module Make (S : S) = struct
     let pad = String.make (len - String.length key) '\000' in
     let value = leintnat_to_string value in
     let* leaf = allocate ~kind:`Leaf [ key; pad; value ] in
+    Log.debug (fun m -> m "Insert %S at %016x" key (leaf :> int)) ;
     let* () = insert root key (Addr.unsafe_of_leaf (Leaf.inj leaf)) in
     Log.debug (fun m -> m "%S inserted." key) ; return ()
 

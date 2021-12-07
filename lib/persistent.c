@@ -2,6 +2,7 @@
 #include <caml/bigarray.h>
 #include <caml/memory.h>
 #include <caml/address_class.h>
+#include <assert.h>
 
 #if defined(HAS_STDATOMIC_H)
 #include <stdatomic.h>
@@ -23,6 +24,9 @@ typedef enum memory_order {
 #else
 #error "C11 atomics are unavailable on this platform."
 #endif
+
+#define is_aligned(ptr, byte_count) \
+  (((uintptr_t)(const void *)(ptr)) % (byte_count) == 0)
 
 #define memory_uint8_off(src, off) \
   ((uint8_t *) ((uint8_t *) Caml_ba_data_val (src) + Unsigned_long_val (off)))
@@ -70,6 +74,9 @@ caml_atomic_set_uint8(value memory, value addr, value v)
 CAMLprim value
 caml_atomic_get_leuintnat(value memory, value addr)
 {
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uintnat_off (memory, addr), sizeof(uintnat)));
+#endif
   uintnat v = atomic_load_explicit(memory_uintnat_off (memory, addr), memory_order_seq_cst) ;
 #if defined(ART_BIG_ENDIAN) && defined(__ARCH_SIXTYFOUR)
   v = __bswap_64 (v) ;
@@ -88,6 +95,9 @@ caml_atomic_set_leuintnat(value memory, value addr, value v)
 #elif defined(ART_BIG_ENDIAN)
   x = __bswap_32 (x) ;
 #endif
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uintnat_off (memory, addr), sizeof(uintnat)));
+#endif
   atomic_store_explicit(memory_uintnat_off (memory, addr), x, memory_order_seq_cst) ;
   return Val_unit ;
 }
@@ -95,6 +105,9 @@ caml_atomic_set_leuintnat(value memory, value addr, value v)
 CAMLprim value
 caml_atomic_get_leuint16(value memory, value addr)
 {
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uint16_off (memory, addr), sizeof(uint16_t)));
+#endif
   uint16_t v = atomic_load_explicit(memory_uint16_off (memory, addr), memory_order_seq_cst) ;
 #if defined(ART_BIG_ENDIAN)
   v = __bswap_16 (v) ;
@@ -109,6 +122,9 @@ caml_atomic_set_leuint16(value memory, value addr, value v)
 #if defined(ART_BIG_ENDIAN)
   x = __bswap_16 (x) ;
 #endif
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uint16_off (memory, addr), sizeof(uint16_t)));
+#endif
   atomic_store_explicit(memory_uint16_off (memory, addr), x, memory_order_seq_cst) ;
   return Val_unit ;
 }
@@ -116,6 +132,9 @@ caml_atomic_set_leuint16(value memory, value addr, value v)
 CAMLprim value
 caml_atomic_get_leuint31(value memory, value addr)
 {
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uint32_off (memory, addr), sizeof(uint32_t)));
+#endif
   uint32_t v = atomic_load_explicit(memory_uint32_off (memory, addr), memory_order_seq_cst) ;
 #if defined(ART_BIG_ENDIAN)
   v = __bswap_32 (v) ;
@@ -130,6 +149,9 @@ caml_atomic_set_leuint31(value memory, value addr, value v)
 #if defined(ART_BIG_ENDIAN)
   x = __bswap_32 (x) ;
 #endif
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uint32_off (memory, addr), sizeof(uint32_t)));
+#endif
   atomic_store_explicit(memory_uint32_off (memory, addr), (x & 0x7fffffff), memory_order_seq_cst) ;
   return Val_unit ;
 }
@@ -137,6 +159,9 @@ caml_atomic_set_leuint31(value memory, value addr, value v)
 uint64_t
 caml_atomic_get_leuint64(value memory, value addr)
 {
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uint64_off (memory, addr), sizeof(uint64_t)));
+#endif
   uint64_t v = atomic_load_explicit(memory_uint64_off (memory, addr), memory_order_seq_cst) ;
 #if defined(ART_BIG_ENDIAN)
   v = __bswap_64 (v) ;
@@ -149,6 +174,9 @@ caml_atomic_set_leuint64(value memory, value addr, uint64_t x)
 {
 #if defined(ART_BIG_ENDIAN)
   x = __bswap_64 (x) ;
+#endif
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uint64_off (memory, addr), sizeof(uint64_t)));
 #endif
   atomic_store_explicit(memory_uint64_off (memory, addr), x, memory_order_seq_cst) ;
   return Val_unit ;
@@ -189,6 +217,9 @@ CAMLprim value
 caml_atomic_fetch_add_leuint16(value memory, value addr, value v)
 {
   intnat res;
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uint16_off (memory, addr), sizeof(uint16_t)));
+#endif
 #if defined(ART_BIG_ENDIAN)
 #error "atomic_fetch_add on big-endian is not supported."
 #else
@@ -201,6 +232,9 @@ CAMLprim value
 caml_atomic_fetch_add_leuintnat(value memory, value addr, value v)
 {
   intnat res;
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uint16_off (memory, addr), sizeof(uintnat)));
+#endif
 #if defined(ART_BIG_ENDIAN)
 #error "atomic_fetch_add on big-endian is not supported."
 #elif defined(ARCH_SIXTYFOUR)
@@ -277,6 +311,9 @@ caml_atomic_compare_exchange_weak_leuintnat(value memory, value addr, value expe
 CAMLprim value
 caml_get_leint31(value memory, value addr)
 {
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uint32_off (memory, addr), sizeof(uint32_t)));
+#endif
   return Val_long(memory_uint32_off (memory, addr)[0] & 0x7fffffff) ;
 }
 
@@ -289,6 +326,13 @@ caml_get_leintnat(value memory, value addr)
   return Val_long(memory_uint32_off (memory, addr)[0]) ;
 #endif
 }
+
+/* XXX(dinosaure): instr. below should appears only
+ * according to [ART_{CLWB,CLFLUSHOPT,CLFLUSH,DC_CVAC}]
+ * and the architecture of the host (target?) system.
+ *
+ * Currently, [ART_CLWB] can appear even if we are on
+ * [__arch64__] architecture which is wrong. */
 
 #ifdef ART_CLWB
 void clwb(const void *ptr) {
@@ -311,6 +355,31 @@ caml_persist(value memory, value addr, value len)
 {
   sfence();
   clwb_range(memory_uint8_off (memory, addr), Long_val (len));
+  sfence();
+  return Val_unit ;
+}
+#elif ART_DC_CVAC
+void dc_cvac(const void *ptr) {
+  asm volatile("dc cvac, %0" :: "r" (ptr) : "memory");
+}
+
+void dc_cvac_range(const void *ptr, uint64_t len) {
+  uintptr_t start = (uintptr_t) ptr & ~(64 - 1);
+  // XXX(dinosaure): assume cache-line = 64 on aarch64
+  for (; start < (uintptr_t)ptr + len; start += 64) {
+    dc_cvac((void *) start);
+  }
+}
+
+void sfence() {
+  asm volatile("dmb ishst" ::: "memory");
+}
+
+CAMLprim value
+caml_persist(value memory, value addr, value len)
+{
+  sfence();
+  dc_cvac_range(memory_uint8_off (memory, addr), Long_val (len));
   sfence();
   return Val_unit ;
 }
