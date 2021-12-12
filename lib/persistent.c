@@ -289,6 +289,9 @@ caml_pause_intrinsic(__unit ())
 CAMLprim value
 caml_atomic_compare_exchange_strong_leuintnat(value memory, value addr, value expected, value desired)
 {
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uintnat_off (memory, addr), sizeof(uintnat)));
+#endif
   uintnat *v = memory_uintnat_off (memory, addr) ;
   uintnat v_expected = Unsigned_long_val (Field(expected, 0)) ;
 
@@ -300,6 +303,9 @@ caml_atomic_compare_exchange_strong_leuintnat(value memory, value addr, value ex
 CAMLprim value
 caml_atomic_compare_exchange_weak_leuintnat(value memory, value addr, value expected, value desired)
 {
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uintnat_off (memory, addr), sizeof(uintnat)));
+#endif
   uintnat *v = memory_uintnat_off (memory, addr) ;
   uintnat v_expected = Unsigned_long_val (Field(expected, 0)) ;
 
