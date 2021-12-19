@@ -68,6 +68,7 @@ $ part.make index.idx
 $ ls -lh
 -rw-r--r-- 1 user user 8,0M ----- -- --:-- index.idx
 prw------- 1 user user    0 ----- -- --:-- index.idx.socket
+prw------- 1 user user    0 ----- -- --:-- index.idx-truncate.socket
 $ part.insert index.idx foo 1
 $ part.find index.idx foo
 1
