@@ -129,6 +129,7 @@ let () =
   check_eq (incl_mt !map tree) true ;
   for i = 0 to len / 3 - 1 do
     let k, _ = arr.(i) in
-    Art.remove tree k ; map := Map.remove k !map
+    let () = try Art.remove tree k with Not_found -> () in
+    map := ( try Map.remove k !map with Not_found -> !map )
   done ;
   check_eq (incl_mt !map tree && incl_tm tree !map) true

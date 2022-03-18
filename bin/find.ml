@@ -28,7 +28,7 @@ let find _ fmt path (key : Rowex.key) =
     let* () = close in
     return result in
   match Part.(run closed th0) with
-  | _closed, value -> show fmt value ; `Ok 0
+  | _closed, value -> show fmt value ; `Ok ()
   | exception Not_found ->
     `Error (false, Fmt.str "%S does not exists." (key :> string))
 
@@ -43,11 +43,11 @@ let setup_logs style_renderer level =
 let common_options = "COMMON OPTIONS"
 
 let verbosity =
-  let env = Arg.env_var "PART_LOGS" in
+  let env = Cmd.Env.info "PART_LOGS" in
   Logs_cli.level ~docs:common_options ~env ()
 
 let renderer =
-  let env = Arg.env_var "PART_FMT" in
+  let env = Cmd.Env.info "PART_FMT" in
   Fmt_cli.style_renderer ~docs:common_options ~env ()
 
 let setup_logs = Term.(const setup_logs $ renderer $ verbosity)
@@ -90,7 +90,8 @@ let cmd =
   let man =
     [ `S Manpage.s_description
     ; `P "$(tname) searches for the value associated with the given key." ] in
-  Term.(ret (const find $ setup_logs $ fmt $ file $ key)),
-  Term.info "find" ~doc ~man
+  Cmd.v
+    (Cmd.info "find" ~doc ~man)
+    Term.(ret (const find $ setup_logs $ fmt $ file $ key))
 
-let () = Term.(exit_status @@ eval cmd)
+let () = Cmd.(exit @@ eval cmd)

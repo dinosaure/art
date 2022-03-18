@@ -8,10 +8,10 @@
  (modules monolith)
  (libraries art monolith))
 
-(rule
- (alias runtest)
- (action
-  (run ./fuzz.exe)))
+; (rule
+;  (alias runtest)
+;  (action
+;   (run ./fuzz.exe)))
 
 (rule
  (alias monolith)
