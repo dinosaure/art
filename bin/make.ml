@@ -19,7 +19,7 @@ let make _ path =
     let open Part in
     create (Fpath.to_string path) in
   match Part.(run closed th0) with
-  | _closed, Ok () -> `Ok 0
+  | _closed, Ok () -> `Ok ()
   | _closed, Error (`Msg err) ->
     `Error (false, Fmt.str "%s." err)
   | exception exn ->
@@ -39,11 +39,11 @@ let setup_logs style_renderer level =
 let common_options = "COMMON OPTIONS"
 
 let verbosity =
-  let env = Arg.env_var "PART_LOGS" in
+  let env = Cmd.Env.info "PART_LOGS" in
   Logs_cli.level ~docs:common_options ~env ()
 
 let renderer =
-  let env = Arg.env_var "PART_FMT" in
+  let env = Cmd.Env.info "PART_FMT" in
   Fmt_cli.style_renderer ~docs:common_options ~env ()
 
 let setup_logs = Term.(const setup_logs $ renderer $ verbosity)
@@ -65,7 +65,8 @@ let cmd =
   let man =
     [ `S Manpage.s_description
     ; `P "$(tname) creates a new index." ] in
-  Term.(ret (const make $ setup_logs $ file)),
-  Term.info "make" ~doc ~man
+  Cmd.v
+    (Cmd.info "make" ~doc ~man)
+    Term.(ret (const make $ setup_logs $ file))
 
-let () = Term.(exit_status @@ eval cmd)
+let () = Cmd.(exit @@ eval cmd)

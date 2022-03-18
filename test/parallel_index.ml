@@ -170,7 +170,8 @@ let multiple_readers =
   Arg.(value & flag & info [ "multiple-readers" ])
 
 let main =
-  Term.(term_result (const main $ multiple_readers $ dataset $ setup_concurrency $ setup_tmp $ setup_logs)),
-  Term.info "ring"
+  Cmd.v
+    (Cmd.info "ring")
+  Term.(term_result (const main $ multiple_readers $ dataset $ setup_concurrency $ setup_tmp $ setup_logs))
 
-let () = Term.(exit @@ eval main)
+let () = Cmd.(exit @@ eval main)

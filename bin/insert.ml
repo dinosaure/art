@@ -21,7 +21,7 @@ let insert _ path (key : Rowex.key) value =
     let* () = insert key value in
     close in
   match Part.(run closed th0) with
-  | _closed, () -> `Ok 0
+  | _closed, () -> `Ok ()
   | exception Rowex.Duplicate ->
     `Error (false, Fmt.str "%S already exists into %a." (key :> string) Fpath.pp path)
 
@@ -36,11 +36,11 @@ let setup_logs style_renderer level =
 let common_options = "COMMON OPTIONS"
 
 let verbosity =
-  let env = Arg.env_var "PART_LOGS" in
+  let env = Cmd.Env.info "PART_LOGS" in
   Logs_cli.level ~docs:common_options ~env ()
 
 let renderer =
-  let env = Arg.env_var "PART_FMT" in
+  let env = Cmd.Env.info "PART_FMT" in
   Fmt_cli.style_renderer ~docs:common_options ~env ()
 
 let setup_logs = Term.(const setup_logs $ renderer $ verbosity)
@@ -77,7 +77,8 @@ let cmd =
   let man =
     [ `S Manpage.s_description
     ; `P "$(tname) inserts a value associated with the given key into the given index." ] in
-  Term.(ret (const insert $ setup_logs $ file $ key $ value)),
-  Term.info "insert" ~doc ~man
+  Cmd.v
+    (Cmd.info "insert" ~doc ~man)
+    Term.(ret (const insert $ setup_logs $ file $ key $ value))
 
-let () = Term.(exit_status @@ eval cmd)
+let () = Cmd.(exit @@ eval cmd)

@@ -4,14 +4,14 @@ test the maker
   $ test -p index-000.idx.socket
   $ part.make index-000.idx
   make: The index (and its socket) index-000.idx already exists.
-  Usage: make [OPTION]... ARG
-  Try `make --help' for more information.
+  Usage: make [OPTION]… ARG
+  Try 'make --help' for more information.
   [124]
   $ rm index-000.idx
   $ part.make index-000.idx
   make: The index (and its socket) index-000.idx already exists.
-  Usage: make [OPTION]... ARG
-  Try `make --help' for more information.
+  Usage: make [OPTION]… ARG
+  Try 'make --help' for more information.
   [124]
   $ rm index-000.idx.socket
   $ rm index-000.idx-truncate.socket
