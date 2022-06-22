@@ -457,6 +457,54 @@ let test30 =
      ; Art.key "\155\200:", 5 |] in
    Caml_test.test data
 
+let test31 =
+  Alcotest.test_case "test31" `Quick @@ fun () ->
+  let t = Art.make () in
+  Art.insert t (Art.unsafe_key "127.0.0.1:33650") 0 ; 
+  Art.insert t (Art.unsafe_key "127.0.0.1:33652") 0 ; 
+  Art.insert t (Art.unsafe_key "127.0.0.1:33654") 0 ; 
+  Art.insert t (Art.unsafe_key "127.0.0.1:33656") 0 ; 
+  Art.insert t (Art.unsafe_key "127.0.0.1:33658") 0 ; 
+  match Art.find_opt t (Art.unsafe_key "127.0.0.1:33660") with
+  | None -> ()
+  | Some _ -> Alcotest.fail "Impossible, 127.0.0.1:33660 does not exist"
+;;
+
+let test32 =
+  Alcotest.test_case "test32" `Quick @@ fun () ->
+  let t = Art.make () in
+  Art.insert t (Art.unsafe_key "\253w\247R\241\002'\240E2K\186\250^}*\159\232\255\148\187\248\144\167\194\165\162j1\154\018\140\139\137\189MV;\232\139Z\237\238,n\240\227\t_\191\152\243\142\184\188\012\150\187+\185/\006\233\192") 0 ;
+  Art.insert t (Art.unsafe_key "\131\206P\133\150\213\b{\005,-\194\209\165*B\227\135B\212N\027Z6\214\015\254\253F*#QM\t>~\025\018\181d\232\253\219\140\240\rU3A\253\242]nE\207\156a\128\139\0195\137W\136") 1 ;
+  Art.insert t (Art.unsafe_key ",Q2$\163d\012\007\220=\199p\t\238\189\152\193\134N\150\018\246$\t\027\\5%\184\020\210\024G\138\144\2532\165mx\219\210\161\167?=\194\212\199)\211\022P\027\153L\158[KX\140\212)\011") 2 ;
+  Art.insert t (Art.unsafe_key "\236(F\"\248\241\213s\015Q\2515jc\238\235\224V\184\138\156x\138\029\017\249\188N\219\145+\028\243Ni\b\1444\nU\155J\1880\146\t\192=\196\021!\161\1337r\247\027\254\132\213w\254\152\155") 3 ;
+  Art.insert t (Art.unsafe_key "\191*\134\\\\\220\n\216\247M\193\172\015\012J\233\219\004+\171K \161\240\0300\020%\180p\132\223\228\018\149\205\192\023\201\128\016&\146\155\017\2067\026\248\180\142\146\164+R\220W\165|K\137\180\199b") 4 ;
+  Art.remove t (Art.unsafe_key ",Q2$\163d\012\007\220=\199p\t\238\189\152\193\134N\150\018\246$\t\027\\5%\184\020\210\024G\138\144\2532\165mx\219\210\161\167?=\194\212\199)\211\022P\027\153L\158[KX\140\212)\011") ;
+  Art.remove t (Art.unsafe_key "\236(F\"\248\241\213s\015Q\2515jc\238\235\224V\184\138\156x\138\029\017\249\188N\219\145+\028\243Ni\b\1444\nU\155J\1880\146\t\192=\196\021!\161\1337r\247\027\254\132\213w\254\152\155") ;
+  Art.remove t (Art.unsafe_key "\191*\134\\\\\220\n\216\247M\193\172\015\012J\233\219\004+\171K \161\240\0300\020%\180p\132\223\228\018\149\205\192\023\201\128\016&\146\155\017\2067\026\248\180\142\146\164+R\220W\165|K\137\180\199b") ;
+  let v0 = Art.find t (Art.unsafe_key "\253w\247R\241\002'\240E2K\186\250^}*\159\232\255\148\187\248\144\167\194\165\162j1\154\018\140\139\137\189MV;\232\139Z\237\238,n\240\227\t_\191\152\243\142\184\188\012\150\187+\185/\006\233\192") in
+  let v1 = Art.find t (Art.unsafe_key "\131\206P\133\150\213\b{\005,-\194\209\165*B\227\135B\212N\027Z6\214\015\254\253F*#QM\t>~\025\018\181d\232\253\219\140\240\rU3A\253\242]nE\207\156a\128\139\0195\137W\136") in
+  Alcotest.(check int) "v0" v0 0 ;
+  Alcotest.(check int) "v1" v1 1 ;
+;;
+
+let test33 =
+  Alcotest.test_case "test33" `Quick @@ fun () ->
+  let t = Art.make () in
+  Art.insert t (Art.unsafe_key "127.0.0.1:33650") 0 ; 
+  Art.insert t (Art.unsafe_key "127.0.0.1:33652") 0 ; 
+  Art.insert t (Art.unsafe_key "127.0.0.1:33654") 0 ; 
+  Art.insert t (Art.unsafe_key "127.0.0.1:33656") 0 ; 
+  Art.insert t (Art.unsafe_key "127.0.0.1:33658") 0 ; 
+  ( try Art.remove t (Art.unsafe_key "127.0.0.1:33660") ; Alcotest.fail "127.0.0.1:33660 does not exist"
+    with Not_found -> Alcotest.(check pass) "remove" () () ) ;
+  Art.remove t (Art.unsafe_key "127.0.0.1:33658") ;
+  match Art.find_opt t (Art.unsafe_key "127.0.0.1:33658") with
+  | None -> Alcotest.(check pass) "rmeove" () ()
+  | Some _ -> Alcotest.fail "Unexpected value for 127.0.0.1:33658"
+;;
+
+
+
 let random_integers num range =
   let data = Array.make num (Art.key "", 0) in
   for i = 0 to num - 1 do data.(i) <- (Art.key (string_of_int (Random.int range)), i) done ;
@@ -478,7 +526,8 @@ let () =
              ; test12
              ; test13
              ; test14
-             ; test15 ]
+             ; test15
+             ; test31 ]
     ; "minimum", [ test16
                  ; test17
                  ; test18
@@ -491,7 +540,9 @@ let () =
                 ; test25
                 ; test26
                 ; test27
-                ; test28 ]
+                ; test28
+                ; test32
+                ; test33 ]
     ; "iter", [ test29 ]
     ; "caml", [ (Caml_test.test Art.[| key "0", 0; key "1", 1; key "2", 2; key "3", 3 |])
               ; (Caml_test.test Art.[| key "3", 3; key "2", 2; key "1", 1; key "0", 0 |])

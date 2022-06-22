@@ -307,7 +307,7 @@ let find_child
 ;;
 
 let check_prefix ~prefix ~prefix_length ~off key len =
-  let max = min (min prefix_length 10) (len - off) in
+  let max = min prefix_length (len - off) in
   let idx = ref 0 in
   while !idx < max && prefix.!{!idx} = key.![off + !idx]
   do incr idx done ; !idx
@@ -375,16 +375,21 @@ let leaf_matches { key; _ } ~off key' len' =
   if len' - off > 0 then memcmp key key' ~off ~len:(len' - off)
 (* TODO(dinosaure): check all the key, (see optimistic match). *)
 
-let rec _find ~key ~key_len depth = function
+let rec _find ~key ~key_len depth elt = match elt with
   | Leaf leaf ->
     leaf_matches leaf key ~off:depth key_len ; leaf.value
   | Node { header= Header { kind= NULL; _ }; _ } -> raise Not_found
   | Node ({ header= Header header; children; } as node) ->
     let plen = header.prefix_length in
     let depth =
-      if plen <> 0
+      if plen > 0 && plen <= 10
       then ( let plen' = check_prefix ~prefix:header.prefix ~prefix_length:plen ~off:depth key key_len in
              if plen' <> min 10 plen then raise Not_found
+           ; depth + plen )
+      else if plen > 10
+      then ( let prefix = Bytes.unsafe_of_string (minimum elt).key in
+             let plen' = check_prefix ~prefix ~prefix_length:plen ~off:depth key key_len in
+             if plen' <> plen then raise Not_found
            ; depth + plen )
       else depth in
     let x = find_child node key.![depth] in
@@ -456,18 +461,6 @@ let rec insert tree elt key_a len_a value_a depth = match elt with
 
 let insert tree key value =
   insert tree !tree key (String.length key) value 0
-
-let minimum tree =
-  let { value; key; } = minimum !tree in
-  key, value
-
-let maximum tree =
-  let { value; key; } = maximum !tree in
-  key, value
-
-let make () = ref empty_elt
-
-let is_empty v = !v == empty_elt
 
 let remove_child_n256
   : n256 record -> 'a elt ref -> 'a elt array -> char -> unit
@@ -572,9 +565,14 @@ let rec remove
     | Node ({ header= Header header; children; } as node) ->
       let plen = header.prefix_length in
       let depth =
-        if plen <> 0
+        if plen > 0 && plen <= 10
         then ( let plen' = check_prefix ~prefix:header.prefix ~prefix_length:plen ~off:depth key key_len in
                if plen' <> min 10 plen then raise Not_found
+             ; depth + plen )
+        else if plen > 10
+        then ( let prefix = Bytes.unsafe_of_string (minimum elt).key in
+               let plen' = check_prefix ~prefix ~prefix_length:plen ~off:depth key key_len in
+               if plen' <> plen then raise Not_found
              ; depth + plen )
         else depth in
       let x = find_child node key.![depth] in
@@ -591,6 +589,18 @@ let rec remove
         ; children.(x) <- !cur )
     | Leaf leaf ->
       leaf_matches leaf ~off:depth key key_len ; tree := empty_elt
+
+let minimum tree =
+  let { value; key; } = minimum !tree in
+  key, value
+
+let maximum tree =
+  let { value; key; } = maximum !tree in
+  key, value
+
+let make () = ref empty_elt
+
+let is_empty v = !v == empty_elt
 
 let remove tree key =
   if !tree == empty_elt then raise Not_found ;
