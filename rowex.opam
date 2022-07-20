@@ -9,7 +9,7 @@ doc: "https://dinosaure.github.io/art/"
 bug-reports: "https://github.com/dinosaure/art/issues"
 depends: [
   "ocaml" {>= "4.08.0"}
-  "dune" {>= "2.0.0"}
+  "dune" {>= "2.8.0"}
   "dune-configurator"
   "base-bytes"
   "fmt" {>= "0.8.7"}
