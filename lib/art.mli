@@ -65,3 +65,5 @@ val of_seq : (key * 'a) Seq.t -> 'a t
 
 val to_seq : 'a t -> (key * 'a) Seq.t
 (** Iterate on the whole map, in increasing order of keys. *)
+
+val prefix_iter : prefix:key -> f:(key -> 'a -> 'acc -> 'acc) -> 'acc -> 'a t -> 'acc
