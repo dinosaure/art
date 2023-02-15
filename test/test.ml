@@ -540,6 +540,57 @@ let test35 =
   Alcotest.(check int) "1" (Art.find t k1) 1 ;
   Alcotest.(check int) "2" (Art.find t k2) 2
 
+let test36 =
+  Alcotest.test_case "test36" `Quick @@ fun () ->
+  let k v = Art.unsafe_key v in
+  let t0 = Art.make () in
+  let t1 = Art.make () in
+  let k0 = k "\014" in
+  let k1 = k "\255\255\004\026" in
+  let k2 = k "@\014" in
+  let k3 = k "\016" in
+  Art.insert t0 k0 0 ;
+  Art.insert t0 k1 1 ;
+  Art.insert t1 k2 2 ;
+  Art.insert t1 k3 3 ;
+  Art.insert t1 k3 4 ;
+  Alcotest.(check pass) "make" () ()
+
+let unique equal lst =
+  let rec go k acc = function
+    | [] -> acc
+    | (k', _) as hd :: tl -> if equal k k' then go k acc tl else go k' (hd :: acc) tl in
+  match List.rev lst with
+  | [] -> []
+  | (k, v) :: lst ->
+     go k [ k, v ] lst
+
+let test37 =
+  Alcotest.test_case "test37" `Quick @@ fun () ->
+  let k v = Art.unsafe_key v in
+  let tree = Art.make () in
+  let k0 = k "\255\230\020\020" in
+  let k1 = k "\255" in
+  let k2 = k "\255\127\230\238d\230\234\004\n\251\128" in
+  let k3 = k "\255\255\255\254\1650\127" in
+  let k4 = k "\128" in
+  let k5 = k "\255\128" in
+  let l0 = [ k0, 0; k1, 1; k2, 3 ] in
+  let l1 = [ k3, 4; k4, 5; k5, 6 ] in
+  List.iter (fun (k, v) -> Art.insert tree k v) l0 ;
+  List.iter (fun (k, v) -> Art.insert tree k v) l1 ;
+  Fmt.epr "@[<hov>%a@]\n%!" Art.(pp Fmt.int) tree ;
+  List.iter (fun (k, _) -> try Art.remove tree k with Not_found -> () (* XXX(dinosaure): double remove *)) l1 ;
+  let check = fun ((k : Art.key), v0) ->
+    match List.assoc_opt k l1 with
+    | Some _ -> Alcotest.(check pass) (Fmt.str "%S" (k :> string)) () ()
+    | None ->
+      let v1 = Art.find tree k in
+      Alcotest.(check int) (Fmt.str "%S" (k :> string)) v0 v1 in
+  let l0 = List.stable_sort (fun ((a : Art.key), _) ((b : Art.key), _) -> String.compare (a:>string) (b:>string)) l0 in
+  let l0 = unique (fun (a:Art.key) (b:Art.key) -> String.equal (a:>string) (b:>string)) l0 in
+  List.iter check l0
+
 let random_integers num range =
   let data = Array.make num (Art.key "", 0) in
   for i = 0 to num - 1 do data.(i) <- (Art.key (string_of_int (Random.int range)), i) done ;
@@ -563,7 +614,8 @@ let () =
              ; test14
              ; test15
              ; test31
-             ; test35 ]
+             ; test35
+             ; test36 ]
     ; "minimum", [ test16
                  ; test17
                  ; test18
@@ -578,7 +630,8 @@ let () =
                 ; test27
                 ; test28
                 ; test32
-                ; test33 ]
+                ; test33
+                ; test37 ]
     ; "iter", [ test29 ]
     ; "prefix_iter", [ test34 ]
     ; "caml", [ (Caml_test.test Art.[| key "0", 0; key "1", 1; key "2", 2; key "3", 3 |])

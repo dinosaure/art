@@ -135,8 +135,7 @@ let empty_header = Header empty_record
 let empty_node = { header= empty_header; children= [||] }
 let empty_elt = Node empty_node
 
-let n4 () : n4 record =
-  let prefix = Bytes.make 10 '\000' in
+let n4 prefix : n4 record =
   let record =
     { prefix; prefix_length= 0;
       count= 0;
@@ -427,7 +426,7 @@ let rec insert tree elt key_a len_a value_a depth = match elt with
         insert cur (Array.unsafe_get children idx) key_a len_a value_a (depth + plen + 1) ;
         Array.unsafe_set children idx !cur
     else
-      ( let node4 = n4 () in
+      ( let node4 = n4 (Bytes.make 10 '\000') (* TODO(dinosaure): check that! *) in
         let children' = Array.make 4 empty_elt in
         let null = ref empty_elt in
         node4.prefix_length <- pdiff
@@ -448,7 +447,7 @@ let rec insert tree elt key_a len_a value_a depth = match elt with
     try
       leaf_matches leaf ~off:depth key_a len_a ; tree := (Leaf { leaf with value= value_a })
     with Not_found ->
-      let node4 = n4 () in
+      let node4 = n4 (Bytes.make 10 '\000') (* TODO(dinosaure): check that! *) in
       let children = Array.make 4 empty_elt in
       let null = ref empty_elt in
       let plon = longest_common_prefix ~off:depth leaf.key key_a in
@@ -509,8 +508,9 @@ let remove_child_n16
     for pos = record.count - 1 to 15 do children.(pos) <- empty_elt done ;
     record.count <- record.count - 1 ;
     if record.count == 3
-    then ( let node4 = n4 () in
+    then ( let node4 = n4 record.prefix in
            let children' = Array.make 4 empty_elt in
+           copy_header ~src:record ~dst:node4 ;
            Bytes.unsafe_blit record.keys 0 node4.keys 0 3
          ; Array.blit children 0 children' 0 3
          ; copy_header ~src:record ~dst:node4
