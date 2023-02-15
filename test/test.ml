@@ -591,6 +591,41 @@ let test37 =
   let l0 = unique (fun (a:Art.key) (b:Art.key) -> String.equal (a:>string) (b:>string)) l0 in
   List.iter check l0
 
+module Ordered = struct
+  type t = Art.key
+
+  let compare (a : t) (b : t) =
+    String.compare (a :> string) (b :> string)
+end
+
+module Map = Map.Make (Ordered)
+
+let incl_mt m t =
+  try Map.iter (fun k v -> let v' = Art.find t k in if v <> v' then raise Not_found) m ; true
+  with Not_found -> false
+
+let incl_tm t m =
+  try Art.iter ~f:(fun k v () -> let v' = Map.find k m in if v <> v' then raise Not_found) () t ; true
+  with Not_found -> false
+
+let test38 =
+  Alcotest.test_case "test38" `Quick @@ fun () ->
+  let k v = Art.unsafe_key v in
+  let t = Art.make () in
+  let k0 = k "}}}}}}}}}}}}}}t}}}}}}\177\177\177\164\151\002\255\127}}}}}}}}}}}}}}\151\002\255\127}}}}}}}}}}}}t}}}}" in
+  let k1 = k "}}}}}}}}}}}}}}t}}}}}}\177\177\177\177\151\002\255\127}}}}}}}}}}}}}}}}c" in
+  let k2 = k "}}}}}}}}}}}}" in
+  Art.insert t k0 0 ;
+  Art.insert t k1 1 ;
+  Art.insert t k2 2 ;
+  let m = Map.empty |> Map.add k0 0 |> Map.add k1 1 |> Map.add k2 2 in
+  Alcotest.(check bool) "incl_mt" (incl_mt m t) true ;
+  Alcotest.(check int) (k0 :> string) (Art.find t k0) 0 ;
+  Fmt.epr "@[<hov>%a@]\n%!" (Art.pp Fmt.int) t ;
+  Art.remove t k0 ;
+  let m = Map.remove k0 m in
+  Alcotest.(check bool) "incl_mt && incl_tm" (incl_mt m t && incl_tm t m) true
+
 let random_integers num range =
   let data = Array.make num (Art.key "", 0) in
   for i = 0 to num - 1 do data.(i) <- (Art.key (string_of_int (Random.int range)), i) done ;
@@ -615,7 +650,8 @@ let () =
              ; test15
              ; test31
              ; test35
-             ; test36 ]
+             ; test36
+             ; test38 ]
     ; "minimum", [ test16
                  ; test17
                  ; test18

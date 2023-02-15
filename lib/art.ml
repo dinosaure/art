@@ -571,7 +571,7 @@ let rec remove
              ; depth + plen )
         else if plen > 10
         then ( let prefix = Bytes.unsafe_of_string (minimum elt).key in
-               let plen' = check_prefix ~prefix ~prefix_length:plen ~off:depth key key_len in
+               let plen' = check_prefix ~prefix ~prefix_offset:depth ~prefix_length:plen ~off:depth key key_len in
                if plen' <> plen then raise Not_found
              ; depth + plen )
         else depth in
