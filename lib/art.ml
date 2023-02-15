@@ -590,6 +590,46 @@ let rec remove
     | Leaf leaf ->
       leaf_matches leaf ~off:depth key key_len ; tree := empty_elt
 
+let rec iter ~f acc = function
+  | Leaf { key; value; } -> f key value acc
+  | Node { children; _ } ->
+    let acc = ref acc in
+    for i = 0 to Array.length children - 1 do acc := iter ~f !acc children.(i) done ;
+    !acc
+
+let leaf_prefix_matches leaf prefix =
+  if String.length leaf.key < String.length prefix
+  then raise Not_found
+  else memcmp leaf.key prefix ~off:0 ~len:(String.length prefix)
+
+let rec prefix_iter ~prefix ~f acc tree =
+  if !tree == empty_elt then raise Not_found ;
+  go ~prefix ~f acc 0 !tree
+and go ~prefix ~f acc depth elt =
+  match elt with
+  | Node _ when depth = String.length prefix ->
+    leaf_prefix_matches (minimum elt) prefix ; (* XXX(dinosaure): or [Not_found] *)
+    iter ~f acc elt
+  | Leaf leaf ->
+    leaf_prefix_matches leaf prefix ; (* XXX(dinosaure): or [Not_found] *)
+    f leaf.key leaf.value acc
+  | Node ({ header= Header { prefix_length= 0; _ }; children; } as node) ->
+    let x = find_child node prefix.![depth] in
+    if x = not_found || Array.unsafe_get children x == empty_elt
+    then raise Not_found ;
+    go ~prefix ~f acc (depth + 1) (Array.unsafe_get children x)
+  | Node ({ header= Header { prefix_length; _ }; children; } as node) ->
+    let plen = prefix_mismatch node ~off:depth prefix (String.length prefix) in
+    let plen = if plen > prefix_length then prefix_length else plen in
+    if plen = 0 then raise Not_found ;
+    if plen + depth = String.length prefix
+    then iter ~f acc elt
+    else
+      let x = find_child node prefix.![depth + prefix_length] in
+      ( if x = not_found || Array.unsafe_get children x == empty_elt
+        then raise Not_found
+      ; go ~prefix ~f acc (depth + prefix_length + 1) (Array.unsafe_get children x) )
+
 let minimum tree =
   let { value; key; } = minimum !tree in
   key, value
@@ -605,14 +645,6 @@ let is_empty v = !v == empty_elt
 let remove tree key =
   if !tree == empty_elt then raise Not_found ;
   remove !tree tree key (String.length key) 0
-
-let rec iter ~f acc = function
-  | Leaf { key; value; } -> f key value acc
-  | Node { children; _ } ->
-    let acc = ref acc in
-    for i = 0 to Array.length children - 1 do acc := iter ~f !acc children.(i) done ;
-    !acc
-(* XXX(dinosaure): [empty_elt] has no children. *)
 
 let iter ~f acc tree = iter ~f acc !tree
 

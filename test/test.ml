@@ -1,3 +1,5 @@
+let () = Printexc.record_backtrace true
+
 let test01 =
   Alcotest.test_case "test01" `Quick @@ fun () ->
   let tree = Art.make () in
@@ -499,11 +501,29 @@ let test33 =
     with Not_found -> Alcotest.(check pass) "remove" () () ) ;
   Art.remove t (Art.unsafe_key "127.0.0.1:33658") ;
   match Art.find_opt t (Art.unsafe_key "127.0.0.1:33658") with
-  | None -> Alcotest.(check pass) "rmeove" () ()
+  | None -> Alcotest.(check pass) "remove" () ()
   | Some _ -> Alcotest.fail "Unexpected value for 127.0.0.1:33658"
 ;;
 
-
+let test34 =
+  Alcotest.test_case "test34" `Quick @@ fun () ->
+  let t = Art.make () in
+  Art.insert t (Art.unsafe_key "127.0.0.1:33650") 0 ;
+  Art.insert t (Art.unsafe_key "127.0.0.1:33652") 0 ;
+  Art.insert t (Art.unsafe_key "127.0.0.1:33654") 0 ;
+  Art.insert t (Art.unsafe_key "127.0.0.1:33656") 0 ;
+  Art.insert t (Art.unsafe_key "127.0.0.1:33658") 0 ;
+  Art.insert t (Art.unsafe_key "127.0.0.2:33658") 0 ;
+  Art.insert t (Art.unsafe_key "192.168.1.1:33658") 0 ;
+  let lst = Art.prefix_iter ~prefix:(Art.unsafe_key "127.0.0.1") ~f:(fun key _ acc -> (key :> string) :: acc) [] t in
+  let lst = List.sort String.compare lst in
+  Alcotest.(check (list string)) "prefix" lst
+    [ "127.0.0.1:33650"
+    ; "127.0.0.1:33652"
+    ; "127.0.0.1:33654"
+    ; "127.0.0.1:33656"
+    ; "127.0.0.1:33658" ]
+;;
 
 let random_integers num range =
   let data = Array.make num (Art.key "", 0) in
@@ -544,6 +564,7 @@ let () =
                 ; test32
                 ; test33 ]
     ; "iter", [ test29 ]
+    ; "prefix_iter", [ test34 ]
     ; "caml", [ (Caml_test.test Art.[| key "0", 0; key "1", 1; key "2", 2; key "3", 3 |])
               ; (Caml_test.test Art.[| key "3", 3; key "2", 2; key "1", 1; key "0", 0 |])
               ; test30

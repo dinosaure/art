@@ -3,6 +3,7 @@ open Crowbar
 let const x _ = x
 
 let key = map [ bytes ] @@ fun k ->
+  if k = "" then bad_test () ;
   try let k = Art.key k in k
   with Invalid_argument _ -> bad_test ()
 
@@ -96,7 +97,7 @@ let () =
   check_eq ~pp:Fmt.int v0 v1
 
 let () =
-  add_test ~name:"art/remove" [ list1 (pair key int); list1 (pair key int) ] @@ fun l0 l1 ->
+  add_test ~name:"art/remove0" [ list1 (pair key int); list1 (pair key int) ] @@ fun l0 l1 ->
   let tree = Art.make () in
   List.iter (fun (k, v) -> Art.insert tree k v) l0 ;
   List.iter (fun (k, v) -> Art.insert tree k v) l1 ;
@@ -121,7 +122,7 @@ let incl_tm t m =
   with Not_found -> false
 
 let () =
-  add_test ~name:"art/remove" [ list (pair key int) ] @@ fun lst ->
+  add_test ~name:"art/remove1" [ list (pair key int) ] @@ fun lst ->
   let arr = Array.of_list lst in
   let len = Array.length arr in
   let tree = Art.make () and map = ref Map.empty in
