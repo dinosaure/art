@@ -101,7 +101,7 @@ let () =
   let tree = Art.make () in
   List.iter (fun (k, v) -> Art.insert tree k v) l0 ;
   List.iter (fun (k, v) -> Art.insert tree k v) l1 ;
-  List.iter (fun (k, _) -> Art.remove tree k) l1 ;
+  List.iter (fun (k, _) -> try Art.remove tree k with Not_found -> () (* XXX(dinosaure): double remove *)) l1 ;
   let check = fun (k, v0) -> match List.assoc k l1 with
     | _ -> ()
     | exception Not_found ->
