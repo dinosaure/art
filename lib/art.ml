@@ -306,10 +306,10 @@ let find_child
   ; !res
 ;;
 
-let check_prefix ~prefix ~prefix_length ~off key len =
+let check_prefix ~prefix ?(prefix_offset= 0) ~prefix_length ~off key len =
   let max = min prefix_length (len - off) in
   let idx = ref 0 in
-  while !idx < max && prefix.!{!idx} = key.![off + !idx]
+  while !idx < max && prefix.!{prefix_offset + !idx} = key.![off + !idx]
   do incr idx done ; !idx
 
 let rec minimum = function
@@ -388,7 +388,7 @@ let rec _find ~key ~key_len depth elt = match elt with
            ; depth + plen )
       else if plen > 10
       then ( let prefix = Bytes.unsafe_of_string (minimum elt).key in
-             let plen' = check_prefix ~prefix ~prefix_length:plen ~off:depth key key_len in
+             let plen' = check_prefix ~prefix ~prefix_offset:depth ~prefix_length:plen ~off:depth key key_len in
              if plen' <> plen then raise Not_found
            ; depth + plen )
       else depth in

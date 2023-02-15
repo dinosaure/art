@@ -525,6 +525,21 @@ let test34 =
     ; "127.0.0.1:33658" ]
 ;;
 
+let test35 =
+  Alcotest.test_case "test35" `Quick @@ fun () ->
+  let k v = Art.unsafe_key v in
+  let t = Art.make () in
+  let k0 = k "\139" in
+  let k1 = k "\139\139\139\139\011\137\139\139\139\146\139\139\255\255\255\127\139\139\139\139\139\139" in
+  let k2 = k "\139\139\139\139\011\137\139\139\139\146\139\139\255\255\255\127\139\139\139\139\139\139\002" in
+  Art.insert t k0 0 ;
+  Art.insert t k1 1 ;
+  Art.insert t k2 2 ;
+  Fmt.pr "@[<hov>%a@]\n%!" Art.(pp Fmt.int) t ;
+  Alcotest.(check int) "0" (Art.find t k0) 0 ;
+  Alcotest.(check int) "1" (Art.find t k1) 1 ;
+  Alcotest.(check int) "2" (Art.find t k2) 2
+
 let random_integers num range =
   let data = Array.make num (Art.key "", 0) in
   for i = 0 to num - 1 do data.(i) <- (Art.key (string_of_int (Random.int range)), i) done ;
@@ -547,7 +562,8 @@ let () =
              ; test13
              ; test14
              ; test15
-             ; test31 ]
+             ; test31
+             ; test35 ]
     ; "minimum", [ test16
                  ; test17
                  ; test18
