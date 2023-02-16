@@ -38,6 +38,7 @@ val find_opt : 'a t -> key -> 'a option
    [t] is [v], or [None] if no binding for [x] exists. *)
 
 val pp : 'a Fmt.t -> 'a t Fmt.t
+(** Pretty printer of {!type:t}. *)
 
 val is_empty : 'a t -> bool
 (** [is_empty tree] returns [true] if [tree] is empty. Otherwise, it returns
@@ -67,3 +68,17 @@ val to_seq : 'a t -> (key * 'a) Seq.t
 (** Iterate on the whole map, in increasing order of keys. *)
 
 val prefix_iter : prefix:key -> f:(key -> 'a -> 'acc -> 'acc) -> 'acc -> 'a t -> 'acc
+(** [prefix_iter ~prefix ~f a t] computes [(f kN dN .. (f k1 d1 a) ...)], where
+   [k1 ... kN] are prefixed by [prefix] in [t] (in increasing order),
+   and [d1 ... dN] are associated data.
+
+   {[
+     let t = Art.make () in
+     Art.insert t (k "Dalton Joe") 0 ;
+     Art.insert t (k "Dalton Jack") 1 ;
+     Art.insert t (k "Dalton William") 2 ;
+     Art.insert t (k "Dalton Averell") 3 ;
+     Art.insert t (k "Rantanplan") 4 ;
+     let dalton = Art.prefix_iter ~prefix:(k "Dalton") (fun k _ a -> (k :> string) :: a) [] t in
+     assert (dalton = [ "Dalton Joe"; "Dalton Jack"; "Dalton William"; "Dalton Averell" ])
+   ]} *)

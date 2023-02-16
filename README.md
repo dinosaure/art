@@ -29,6 +29,25 @@ If you want the order and the speed of `Hashtbl.t`, Art is your library:
 - Benchmark on [`find`][find-bechamel]
 - Benchmark on [`insert`][insert-bechamel]
 
+The function `prefix_iter` is also available if you want to get a subset of your
+tree:
+```ocaml
+# let t = Art.make () ;;
+# Art.insert t (Art.key
+# Art.insert t (Art.key "Dalton Joe") 0 ;;
+# Art.insert t (Art.key "Dalton Jack") 1 ;;
+# Art.insert t (Art.key "Dalton William") 2 ;;
+# Art.insert t (Art.key "Dalton Averell") 3 ;;
+# Art.insert t (Art.key "Rantanplan") 4 ;;
+# let dalton = Art.prefix_iter ~prefix:(Art.key "Dalton")
+  (fun k _ a -> (k :> string) :: a) [] t ;;
+- : string list = [ "Dalton Joe"
+                  ; "Dalton Jack"
+		  ; "Dalton William"
+		  ; "Dalton Averell" ]
+```
+
+
 ## Read Optimised Write Exclusion (ROWEX) in OCaml
 
 ROWEX is a second implementation of ART with atomic operations. It's a _functor_
