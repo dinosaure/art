@@ -22,7 +22,7 @@ let pp : action Fmt.t = fun ppf v -> match v with
 (* XXX(dinosaure): it's not an effective test but let me waste CPU clock. *)
 
 let () =
-  add_test ~name:"art" [ test ] @@ fun (tests : action list) ->
+  add_test ~name:"art0" [ test ] @@ fun (tests : action list) ->
   let tbl = Hashtbl.create (List.length tests) in
   let art = Art.make () in
   List.iter (function
@@ -43,7 +43,7 @@ let pp_binding ppf ((k : Art.key), v) =
 (* XXX(dinosaure): this test is more appropriate. *)
 
 let () =
-  add_test ~name:"art" [ list (pair key int) ] @@ fun lst ->
+  add_test ~name:"art1" [ list (pair key int) ] @@ fun lst ->
   let art = Art.make () in
   let check = fun (k, v0) -> Art.insert art k v0 ; match Art.find art k with
     | v1 -> check_eq v0 v1
@@ -60,7 +60,7 @@ let unique equal lst =
      go k [ k, v ] lst
 
 let () =
-  add_test ~name:"art" [ list (pair key int) ] @@ fun lst ->
+  add_test ~name:"art2" [ list (pair key int) ] @@ fun lst ->
   let art = Art.make () in
   List.iter (fun (k, v) -> Art.insert art k v) lst ;
   let uniq = List.stable_sort (fun ((a : Art.key), _) ((b : Art.key), _) -> String.compare (a:>string) (b:>string)) lst in
@@ -101,7 +101,7 @@ let () =
   let tree = Art.make () in
   List.iter (fun (k, v) -> Art.insert tree k v) l0 ;
   List.iter (fun (k, v) -> Art.insert tree k v) l1 ;
-  List.iter (fun (k, _) -> Art.remove tree k) l1 ;
+  List.iter (fun (k, _) -> try Art.remove tree k with Not_found -> () (* XXX(dinosaure): double remove *)) l1 ;
   let check = fun (k, v0) -> match List.assoc k l1 with
     | _ -> ()
     | exception Not_found ->

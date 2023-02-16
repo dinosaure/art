@@ -135,8 +135,7 @@ let empty_header = Header empty_record
 let empty_node = { header= empty_header; children= [||] }
 let empty_elt = Node empty_node
 
-let n4 () : n4 record =
-  let prefix = Bytes.make 10 '\000' in
+let n4 prefix : n4 record =
   let record =
     { prefix; prefix_length= 0;
       count= 0;
@@ -306,10 +305,10 @@ let find_child
   ; !res
 ;;
 
-let check_prefix ~prefix ~prefix_length ~off key len =
+let check_prefix ~prefix ?(prefix_offset= 0) ~prefix_length ~off key len =
   let max = min prefix_length (len - off) in
   let idx = ref 0 in
-  while !idx < max && prefix.!{!idx} = key.![off + !idx]
+  while !idx < max && prefix.!{prefix_offset + !idx} = key.![off + !idx]
   do incr idx done ; !idx
 
 let rec minimum = function
@@ -388,7 +387,7 @@ let rec _find ~key ~key_len depth elt = match elt with
            ; depth + plen )
       else if plen > 10
       then ( let prefix = Bytes.unsafe_of_string (minimum elt).key in
-             let plen' = check_prefix ~prefix ~prefix_length:plen ~off:depth key key_len in
+             let plen' = check_prefix ~prefix ~prefix_offset:depth ~prefix_length:plen ~off:depth key key_len in
              if plen' <> plen then raise Not_found
            ; depth + plen )
       else depth in
@@ -427,7 +426,7 @@ let rec insert tree elt key_a len_a value_a depth = match elt with
         insert cur (Array.unsafe_get children idx) key_a len_a value_a (depth + plen + 1) ;
         Array.unsafe_set children idx !cur
     else
-      ( let node4 = n4 () in
+      ( let node4 = n4 (Bytes.make 10 '\000') (* TODO(dinosaure): check that! *) in
         let children' = Array.make 4 empty_elt in
         let null = ref empty_elt in
         node4.prefix_length <- pdiff
@@ -448,7 +447,7 @@ let rec insert tree elt key_a len_a value_a depth = match elt with
     try
       leaf_matches leaf ~off:depth key_a len_a ; tree := (Leaf { leaf with value= value_a })
     with Not_found ->
-      let node4 = n4 () in
+      let node4 = n4 (Bytes.make 10 '\000') (* TODO(dinosaure): check that! *) in
       let children = Array.make 4 empty_elt in
       let null = ref empty_elt in
       let plon = longest_common_prefix ~off:depth leaf.key key_a in
@@ -509,8 +508,9 @@ let remove_child_n16
     for pos = record.count - 1 to 15 do children.(pos) <- empty_elt done ;
     record.count <- record.count - 1 ;
     if record.count == 3
-    then ( let node4 = n4 () in
+    then ( let node4 = n4 record.prefix in
            let children' = Array.make 4 empty_elt in
+           copy_header ~src:record ~dst:node4 ;
            Bytes.unsafe_blit record.keys 0 node4.keys 0 3
          ; Array.blit children 0 children' 0 3
          ; copy_header ~src:record ~dst:node4
@@ -571,7 +571,7 @@ let rec remove
              ; depth + plen )
         else if plen > 10
         then ( let prefix = Bytes.unsafe_of_string (minimum elt).key in
-               let plen' = check_prefix ~prefix ~prefix_length:plen ~off:depth key key_len in
+               let plen' = check_prefix ~prefix ~prefix_offset:depth ~prefix_length:plen ~off:depth key key_len in
                if plen' <> plen then raise Not_found
              ; depth + plen )
         else depth in
