@@ -16,6 +16,7 @@
  (foreign_stubs
   (language c)
   (flags
+   -std=c11
    (:standard)
    (:include sse.sexp))
   (names rowex)))
@@ -29,6 +30,7 @@
  (foreign_stubs
   (language c)
   (flags
+   -std=c11
    (:standard)
    (:include endian.sexp)
    (:include sse.sexp)
@@ -40,6 +42,7 @@
  (modules part)
  (foreign_stubs
   (language c)
+  (flags -std=c11 (:standard))
   (names msync))
  (libraries rresult mmap persistent))
 

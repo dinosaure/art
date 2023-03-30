@@ -74,5 +74,5 @@ caml_n16_get_child(value compact_count, value k, value keys)
 {
   return (Val_long (ml_n16_get_child (Long_val (compact_count),
                                       Long_val (k),
-                                      String_val (keys)))) ;
+                                      (const uint8_t *) String_val (keys)))) ;
 }

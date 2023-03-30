@@ -73,7 +73,7 @@ FORCE_INLINE __m128i _mm_loadu_si128(const __m128i *p)
   return vreinterpretq_m128i_s32(vld1q_s32((const int32_t *) p)) ;
 }
 
-FORCE_INLINE __m128i _mm_storeu_si128(__m128i *p, __m128i a)
+FORCE_INLINE void _mm_storeu_si128(__m128i *p, __m128i a)
 {
   vst1q_s32((int32_t *) p, vreinterpretq_s32_m128i(a));
 }
