@@ -4,7 +4,12 @@
 #include <caml/address_class.h>
 #include <assert.h>
 
-#if defined(HAS_STDATOMIC_H)
+#if (defined HAVE_STDATOMIC_H) && (!defined __clang__)
+// XXX(dinosaure): on MacOS, an error persists about the compilation with atomics
+// which appeared for guile too. On the mailing list, they said that we should
+// replace [defined HAVE_STDATOMIC_H] by:
+//   [(defined HAVE_STDATOMIC_H) && (!defined __clang__)]
+// I did not look deeply on that but I would like to trust them.
 #include <stdatomic.h>
 #elif defined(__GNUC__)
 typedef enum memory_order {
