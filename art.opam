@@ -21,5 +21,5 @@ depends: [
   "fmt"         {>= "0.8.7"}
   "alcotest"    {with-test}
   "crowbar"     {with-test}
-  "monolith"    {with-test}
+  "monolith"    {>= "20210525" & with-test}
 ]
