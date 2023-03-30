@@ -26,7 +26,7 @@
 CAMLprim value
 caml_atomic_get_uint8(value memory, value addr)
 {
-  uint8_t v = atomic_load_explicit(memory_uint8_off (memory, addr), memory_order_seq_cst) ;
+  uint8_t v = __atomic_load_n(memory_uint8_off (memory, addr), memory_order_seq_cst) ;
   return Val_long (v) ;
 }
 
@@ -34,7 +34,7 @@ CAMLprim value
 caml_atomic_set_uint8(value memory, value addr, value v)
 {
   uint8_t x = Unsigned_long_val (v) ;
-  atomic_store_explicit(memory_uint8_off (memory, addr), x, memory_order_seq_cst) ;
+  __atomic_store_n(memory_uint8_off (memory, addr), x, memory_order_seq_cst) ;
   return Val_unit ;
 }
 
@@ -57,7 +57,7 @@ caml_atomic_get_leuintnat(value memory, value addr)
 #if defined(__aarch64__)
   assert(is_aligned(memory_uintnat_off (memory, addr), sizeof(uintnat)));
 #endif
-  uintnat v = atomic_load_explicit(memory_uintnat_off (memory, addr), memory_order_seq_cst) ;
+  uintnat v = __atomic_load_n(memory_uintnat_off (memory, addr), memory_order_seq_cst) ;
 #if defined(ART_BIG_ENDIAN) && defined(__ARCH_SIXTYFOUR)
   v = __bswap_64 (v) ;
 #elif defined(ART_BIG_ENDIAN)
@@ -78,7 +78,7 @@ caml_atomic_set_leuintnat(value memory, value addr, value v)
 #if defined(__aarch64__)
   assert(is_aligned(memory_uintnat_off (memory, addr), sizeof(uintnat)));
 #endif
-  atomic_store_explicit(memory_uintnat_off (memory, addr), x, memory_order_seq_cst) ;
+  __atomic_store_n(memory_uintnat_off (memory, addr), x, memory_order_seq_cst) ;
   return Val_unit ;
 }
 
@@ -88,7 +88,7 @@ caml_atomic_get_leuint16(value memory, value addr)
 #if defined(__aarch64__)
   assert(is_aligned(memory_uint16_off (memory, addr), sizeof(uint16_t)));
 #endif
-  uint16_t v = atomic_load_explicit(memory_uint16_off (memory, addr), memory_order_seq_cst) ;
+  uint16_t v = __atomic_load_n(memory_uint16_off (memory, addr), memory_order_seq_cst) ;
 #if defined(ART_BIG_ENDIAN)
   v = __bswap_16 (v) ;
 #endif
@@ -105,7 +105,7 @@ caml_atomic_set_leuint16(value memory, value addr, value v)
 #if defined(__aarch64__)
   assert(is_aligned(memory_uint16_off (memory, addr), sizeof(uint16_t)));
 #endif
-  atomic_store_explicit(memory_uint16_off (memory, addr), x, memory_order_seq_cst) ;
+  __atomic_store_n(memory_uint16_off (memory, addr), x, memory_order_seq_cst) ;
   return Val_unit ;
 }
 
@@ -115,7 +115,7 @@ caml_atomic_get_leuint31(value memory, value addr)
 #if defined(__aarch64__)
   assert(is_aligned(memory_uint32_off (memory, addr), sizeof(uint32_t)));
 #endif
-  uint32_t v = atomic_load_explicit(memory_uint32_off (memory, addr), memory_order_seq_cst) ;
+  uint32_t v = __atomic_load_n(memory_uint32_off (memory, addr), memory_order_seq_cst) ;
 #if defined(ART_BIG_ENDIAN)
   v = __bswap_32 (v) ;
 #endif
@@ -132,7 +132,7 @@ caml_atomic_set_leuint31(value memory, value addr, value v)
 #if defined(__aarch64__)
   assert(is_aligned(memory_uint32_off (memory, addr), sizeof(uint32_t)));
 #endif
-  atomic_store_explicit(memory_uint32_off (memory, addr), (x & 0x7fffffff), memory_order_seq_cst) ;
+  __atomic_store_n(memory_uint32_off (memory, addr), (x & 0x7fffffff), memory_order_seq_cst) ;
   return Val_unit ;
 }
 
@@ -142,7 +142,7 @@ caml_atomic_get_leuint64(value memory, value addr)
 #if defined(__aarch64__)
   assert(is_aligned(memory_uint64_off (memory, addr), sizeof(uint64_t)));
 #endif
-  uint64_t v = atomic_load_explicit(memory_uint64_off (memory, addr), memory_order_seq_cst) ;
+  uint64_t v = __atomic_load_n(memory_uint64_off (memory, addr), memory_order_seq_cst) ;
 #if defined(ART_BIG_ENDIAN)
   v = __bswap_64 (v) ;
 #endif
@@ -158,7 +158,7 @@ caml_atomic_set_leuint64(value memory, value addr, uint64_t x)
 #if defined(__aarch64__)
   assert(is_aligned(memory_uint64_off (memory, addr), sizeof(uint64_t)));
 #endif
-  atomic_store_explicit(memory_uint64_off (memory, addr), x, memory_order_seq_cst) ;
+  __atomic_store_n(memory_uint64_off (memory, addr), x, memory_order_seq_cst) ;
   return Val_unit ;
 }
 
@@ -203,7 +203,7 @@ caml_atomic_fetch_add_leuint16(value memory, value addr, value v)
 #if defined(ART_BIG_ENDIAN)
 #error "atomic_fetch_add on big-endian is not supported."
 #else
-  res = atomic_fetch_add_explicit(memory_uint16_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
+  res = __atomic_fetch_add(memory_uint16_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
 #endif
   return Val_long (res) ;
 }
@@ -218,9 +218,9 @@ caml_atomic_fetch_add_leuintnat(value memory, value addr, value v)
 #if defined(ART_BIG_ENDIAN)
 #error "atomic_fetch_add on big-endian is not supported."
 #elif defined(ARCH_SIXTYFOUR)
-  res = atomic_fetch_add_explicit(memory_uint64_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
+  res = __atomic_fetch_add(memory_uint64_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
 #else
-  res = atomic_fetch_add_explicit(memory_uint32_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
+  res = __atomic_fetch_add(memory_uint32_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
 #endif
   return Val_long (res) ;
 }
