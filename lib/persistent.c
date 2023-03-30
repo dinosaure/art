@@ -3,32 +3,7 @@
 #include <caml/memory.h>
 #include <caml/address_class.h>
 #include <assert.h>
-
-#if (defined HAVE_STDATOMIC_H) && (!defined __clang__)
-// XXX(dinosaure): on MacOS, an error persists about the compilation with atomics
-// which appeared for guile too. On the mailing list, they said that we should
-// replace [defined HAVE_STDATOMIC_H] by:
-//   [(defined HAVE_STDATOMIC_H) && (!defined __clang__)]
-// I did not look deeply on that but I would like to trust them.
 #include <stdatomic.h>
-#elif defined(__GNUC__)
-typedef enum memory_order {
-  memory_order_relaxed = __ATOMIC_RELAXED,
-  memory_order_seq_cst = __ATOMIC_SEQ_CST,
-  memory_order_release = __ATOMIC_RELEASE,
-  memory_order_acquire = __ATOMIC_ACQUIRE,
-  memory_order_acq_rel = __ATOMIC_ACQ_REL
-} memory_order;
-
-#define atomic_load_explicit(x, m) \
-  __atomic_load_n((x), (m))
-#define atomic_fetch_add_explicit(x, n, m) \
-  __atomic_fetch_add((x), (n), (m))
-#define atomic_store_explicit(x, v, m) \
-  __atomic_store_n((x), (v), (m))
-#else
-#error "C11 atomics are unavailable on this platform."
-#endif
 
 #define is_aligned(ptr, byte_count) \
   (((uintptr_t)(const void *)(ptr)) % (byte_count) == 0)
@@ -347,7 +322,7 @@ caml_get_leintnat(value memory, value addr)
 
 #ifdef ART_CLWB
 void clwb(const void *ptr) {
-  asm volatile ("clwb %0" : "+m" (ptr));
+  __asm__ volatile ("clwb %0" : "+m" (ptr));
 }
 
 void clwb_range(const void *ptr, uint64_t len) {
@@ -358,7 +333,7 @@ void clwb_range(const void *ptr, uint64_t len) {
 }
 
 void sfence() {
-  asm volatile ("sfence":::"memory");
+  __asm__ volatile ("sfence":::"memory");
 }
 
 CAMLprim value
@@ -371,7 +346,7 @@ caml_persist(value memory, value addr, value len)
 }
 #elif ART_DC_CVAC
 void dc_cvac(const void *ptr) {
-  asm volatile("dc cvac, %0" :: "r" (ptr) : "memory");
+  __asm__ volatile("dc cvac, %0" :: "r" (ptr) : "memory");
 }
 
 void dc_cvac_range(const void *ptr, uint64_t len) {
@@ -383,7 +358,7 @@ void dc_cvac_range(const void *ptr, uint64_t len) {
 }
 
 void sfence() {
-  asm volatile("dmb ishst" ::: "memory");
+  __asm__ volatile("dmb ishst" ::: "memory");
 }
 
 CAMLprim value
@@ -396,7 +371,7 @@ caml_persist(value memory, value addr, value len)
 }
 #elif ART_CLFLUSHOPT
 void clflushopt(const void *ptr) {
-  asm volatile ("clflushopt %0" : "+m" (ptr));
+  __asm__ volatile ("clflushopt %0" : "+m" (ptr));
 }
 
 void clflushopt_range(const void *ptr, uint64_t len) {
@@ -407,7 +382,7 @@ void clflushopt_range(const void *ptr, uint64_t len) {
 }
 
 void sfence() {
-  asm volatile ("sfence":::"memory");
+  __asm__ volatile ("sfence":::"memory");
 }
 
 CAMLprim value
@@ -420,7 +395,7 @@ caml_persist(value memory, value addr, value len)
 }
 #else /* #elif ART_CLFLUSH? */
 void clflush(const void *ptr) {
-  asm volatile ("clflush %0" : "+m" (ptr));
+  __asm__ volatile ("clflush %0" : "+m" (ptr));
 }
 
 void clflush_range(const void *ptr, uint64_t len) {
@@ -431,7 +406,7 @@ void clflush_range(const void *ptr, uint64_t len) {
 }
 
 void mfence() {
-  asm volatile ("mfence":::"memory");
+  __asm__ volatile ("mfence":::"memory");
 }
 
 CAMLprim value
