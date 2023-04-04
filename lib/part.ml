@@ -33,7 +33,7 @@ type ('p, 'q, 'a) t =
   | Create : string * int -> (closed, closed, (unit, [> `Msg of string ]) result) t
   | Close : ('c opened, closed, unit) t
   | Find : key -> ('c rd opened, 'c rd opened, int) t
-  | Insert : key * int -> (rdwr opened, rdwr opened, unit) t
+  | Insert : key * int -> (rdwr opened, rdwr opened, (unit, [> `Already_exists ]) result) t
 
 let return x = Return x
 let open_index c ~path = Open (c, path)
@@ -147,7 +147,8 @@ let rec run
     Persistent.(run mmu (Persistent.find mmu key))
   | Insert (key, value), Opened (mmu, capabilities, fd) ->
     Opened (mmu, capabilities, fd),
-    Persistent.(run mmu (insert mmu key value))
+    ( try Persistent.(run mmu (insert mmu key value)) ; Ok ()
+      with Rowex.Duplicate -> Error `Already_exists )
   | Open (Reader uid, path), Closed ->
     let ipc = Ipc.connect (Fmt.str "%s.socket" path) in
     let trc = Ipc.connect (Fmt.str "%s-truncate.socket" path) in

@@ -18,12 +18,13 @@ let insert _ path (key : Rowex.key) value =
   let th0 =
     let open Part in
     let* () = open_index writer ~path:(Fpath.to_string path) in
-    let* () = insert key value in
-    close in
-  match Part.(run closed th0) with
-  | _closed, () -> `Ok ()
-  | exception Rowex.Duplicate ->
-    `Error (false, Fmt.str "%S already exists into %a." (key :> string) Fpath.pp path)
+    let* res = insert key value in
+    let* () = close in
+    match res with
+    | Ok () -> return (`Ok ())
+    | Error `Already_exists ->
+      return (`Error (false, Fmt.str "%S already exists into %a." (key :> string) Fpath.pp path)) in
+  Part.(run closed th0) |> snd
 
 open Cmdliner
 

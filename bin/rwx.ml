@@ -23,8 +23,8 @@ let insert state key value =
     let open Part in
     insert key value in
   match Part.run state th0 with
-  | state, () -> state
-  | exception Rowex.Duplicate ->
+  | state, Ok () -> state
+  | state, Error `Already_exists ->
     Fmt.pr "# %S already exists.\n%!" (key :> string) ;
     state
 

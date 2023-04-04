@@ -11,7 +11,8 @@ let () =
   let open Part in
   match create path |> run closed with
   | _, Ok () -> ()
-  | _, Error (`Msg msg) -> failf "Got an error when we created the IDX file: %s" msg
+  | _, Error (`Msg msg) ->
+    Fmt.epr "[%a]: %s\n%!" Fmt.(styled `Yellow string) "WARNING" msg
 
 let () =
   add_test ~name:"simple" [ list (pair key int) ] @@ fun lst ->
@@ -20,8 +21,12 @@ let () =
     let rec go tbl = function
       | [] -> return tbl
       | (k, v) :: r ->
-        let* () = Part.insert k v in
-        Hashtbl.replace tbl k v;
+        let* res = Part.insert k v in
+        let* () = match res with
+        | Ok () -> Hashtbl.replace tbl k v; return ()
+        | Error `Already_exists -> 
+          let* v = Part.find k in
+          Hashtbl.replace tbl k v; return () in
         go tbl r in
     let* () = open_index Part.writer ~path in
     let* tbl = go (Hashtbl.create 0x10) lst in

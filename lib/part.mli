@@ -69,7 +69,7 @@ val closed : closed state
 val return : 'a -> ('p, 'p, 'a) t
 val open_index : 'c capabilities -> path:string -> (closed, 'c opened, unit) t
 val find : key -> ('c rd opened, 'c rd opened, int) t
-val insert : key -> int -> (rdwr opened, rdwr opened, unit) t
+val insert : key -> int -> (rdwr opened, rdwr opened, (unit, [> `Already_exists ]) result) t
 val close : ('c opened, closed, unit) t
 
 val create : ?len:int -> string

@@ -39,7 +39,7 @@ let test ~kind dataset path =
       let rec go ic n = match input_line ic with
         | line ->
           Logs.debug (fun m -> m "Insert %S." line) ;
-          let* () = Part.insert (Rowex.unsafe_key line) n in
+          let* _res = Part.insert (Rowex.unsafe_key line) n in
           go ic (succ n)
         | exception End_of_file ->
           Logs.debug (fun m -> m "End of writer") ;
