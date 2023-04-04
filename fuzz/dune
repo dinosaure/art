@@ -22,3 +22,8 @@
  (alias monolith)
  (action
   (run ./monolith.exe)))
+
+(rule
+ (alias runtest)
+ (action
+  (run ./fuzz_rowex.exe)))
