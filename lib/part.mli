@@ -78,5 +78,6 @@ val create : ?len:int -> string
 val bind : ('p, 'q, 'a) t -> ('a -> ('q, 'r, 'b) t) -> ('p, 'r, 'b) t
 
 val run : 'p state -> ('p, 'q, 'a) t -> 'q state * 'a
+val is_closed : 'p state -> bool
 
 val ( let* ) : ('p, 'q, 'a) t -> ('a -> ('q, 'r, 'b) t) -> ('p, 'r, 'b) t

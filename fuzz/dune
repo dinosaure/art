@@ -8,6 +8,11 @@
  (modules monolith)
  (libraries art monolith))
 
+(executable
+ (name fuzz_rowex)
+ (modules fuzz_rowex)
+ (libraries part crowbar))
+
 (rule
  (alias runtest)
  (action
