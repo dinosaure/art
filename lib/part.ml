@@ -194,3 +194,6 @@ let rec run
     | Error err, _ | _, Error err -> Closed, Error err )
   | Close, Opened (_mmu, Writer, Unix_file_descr fd) ->
     Unix.close fd ; Closed, ()   
+
+(* XXX(dinosaure): see ocaml/ocaml#12161 *)
+let () = at_exit Gc.full_major
