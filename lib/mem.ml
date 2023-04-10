@@ -1,5 +1,8 @@
 open Rowex
 
+let src = Logs.Src.create "rowex.mem"
+module Log = (val Logs.src_log src : Logs.LOG)
+
 external bytes_get_uint16 : bytes -> int -> int = "%caml_bytes_get16"
 external bytes_set_uint16 : bytes -> int -> int -> unit = "%caml_bytes_set16"
 external bytes_get_uint32 : bytes -> int -> int32 = "%caml_bytes_get32"
@@ -76,8 +79,9 @@ module Make (Memory : sig val memory : bytes end) = struct
     | C_string ->
         let buf = Buffer.create 0x10 in
         let idx = ref 0 in
-        while Bytes.get memory !idx <> '\000'
-        do Buffer.add_char buf (Bytes.get memory !idx) ; incr idx done ;
+        while Bytes.get memory (addr + !idx) <> '\000'
+        do Buffer.add_char buf (Bytes.get memory (addr + !idx)) ; incr idx done ;
+        Log.debug (fun m -> m "%016x loaded (%d byte(s)): %S" addr !idx (Buffer.contents buf));
         Buffer.contents buf
     | LEInt | Addr_rd -> assert false
 

@@ -11,7 +11,7 @@
 (executable
  (name fuzz_rowex)
  (modules fuzz_rowex)
- (libraries logs.fmt fmt.tty rowex.mem crowbar))
+ (libraries rowex.mem crowbar))
 
 (rule
  (alias runtest)
