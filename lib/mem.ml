@@ -130,7 +130,7 @@ module Make (Memory : sig val memory : bytes end) = struct
       else Some (addr, len)) keep
 
   let lint ~kind addr len payloads =
-    Bytes.blit_string (String.concat String.empty payloads) 0 memory addr len;
+    Bytes.blit_string (String.concat "" payloads) 0 memory addr len;
     if kind = `Node then bytes_set_leuint64 memory (addr + _header_owner) (Int64.of_int (now ()))
 
   let allocate ~kind ?len payloads =
