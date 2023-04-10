@@ -22,6 +22,12 @@
   (names rowex)))
 
 (library
+ (name mem)
+ (modules mem)
+ (public_name rowex.mem)
+ (libraries rowex))
+
+(library
  (name persistent)
  (modules persistent hashset)
  (public_name rowex.persistent)

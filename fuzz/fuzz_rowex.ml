@@ -1,5 +1,27 @@
 open Crowbar
 
+let reporter ppf =
+  let report src level ~over k msgf =
+    let k _ =
+      over () ;
+      k () in
+    let with_metadata header _tags k ppf fmt =
+      Format.kfprintf k ppf
+        ("%a[%a][%a]: " ^^ fmt ^^ "\n%!")
+        Logs_fmt.pp_header (level, header)
+        Fmt.(styled `Blue (fmt "%10d")) (Unix.getpid ())
+        Fmt.(styled `Magenta string)
+        (Logs.Src.name src) in
+    msgf @@ fun ?header ?tags fmt -> with_metadata header tags k ppf fmt in
+  { Logs.report }
+
+let setup_logs style_renderer level =
+  Fmt_tty.setup_std_outputs ?style_renderer () ;
+  Logs.set_level level ;
+  Logs.set_reporter (reporter Fmt.stderr)
+
+let () = setup_logs (Some `Ansi_tty) (Some Logs.Debug)
+
 let path = "index.idx"
 
 let key = map [ bytes ] @@ fun k ->
@@ -7,44 +29,20 @@ let key = map [ bytes ] @@ fun k ->
   try let k = Rowex.key k in k
   with Invalid_argument _ -> bad_test ()
 
-let () =
-  let open Part in
-  match create path |> run closed with
-  | _, Ok () -> ()
-  | _, Error (`Msg msg) ->
-    Fmt.epr "[%a]: %s\n%!" Fmt.(styled `Yellow string) "WARNING" msg
+let memory = Bytes.create 0xFFFFFF
+module Mem = Mem.Make (struct let memory = memory end)
+module Art = Rowex.Make (Mem) 
 
 let () =
   add_test ~name:"simple" [ list (pair key int) ] @@ fun lst ->
-  let insert_all lst =
-    let open Part in
-    let rec go tbl = function
-      | [] -> return tbl
-      | (k, v) :: r ->
-        let* res = Part.insert k v in
-        let* () = match res with
-        | Ok () -> Hashtbl.replace tbl k v; return ()
-        | Error `Already_exists -> 
-          let* v = Part.find k in
-          Hashtbl.replace tbl k v; return () in
-        go tbl r in
-    let* () = open_index Part.writer ~path in
-    let* tbl = go (Hashtbl.create 0x10) lst in
-    let lst = Hashtbl.fold (fun k v a -> (k, v) :: a) tbl [] in
-    let* () = close in return lst in
-  let find_all lst =
-    let open Part in
-    let rec go acc = function
-      | [] -> return acc
-      | (k, v) :: r ->
-        let* v' = Part.find k in
-        check_eq v v' ; go (acc && (v = v')) r in
-    let* () = open_index (Part.reader 0L) ~path in
-    let* res = go true lst in
-    let* ()  = close in
-    return res in
-  let state, lst = Part.(run closed) (insert_all lst) in
-  check_eq (Part.is_closed state) true;
-  let state, res = Part.(run closed) (find_all lst) in
-  check_eq (Part.is_closed state) true;
-  check_eq res true
+  let root = Art.make () in
+  let pp = Art.formatter ~commit:ignore Fmt.stdout in
+  List.fold_left (fun acc (k, v) -> match Art.insert root k v with
+    | () ->
+        (Art.pp pp root) ;
+        (k, v) :: acc
+    | exception Out_of_memory -> bad_test ()
+    | exception Rowex.Duplicate -> acc) [] lst
+  |> List.iter @@ fun (k, v) -> match Art.find root k with
+  | v' -> check_eq v v'
+  | exception Not_found -> failf "%S not found" (k :> string)
