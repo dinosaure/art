@@ -8,6 +8,11 @@
  (modules monolith)
  (libraries art monolith))
 
+(executable
+ (name fuzz_rowex)
+ (modules fuzz_rowex)
+ (libraries rowex.mem crowbar))
+
 (rule
  (alias runtest)
  (action
@@ -17,3 +22,8 @@
  (alias monolith)
  (action
   (run ./monolith.exe)))
+
+(rule
+ (alias runtest)
+ (action
+  (run ./fuzz_rowex.exe)))

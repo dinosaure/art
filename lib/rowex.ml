@@ -1420,6 +1420,7 @@ module Make (S : S) = struct
       then insert_compact_n48 (N48 n) p k kp value need_to_restart
       else _insert_grow_n48_n256 (N48 n) p k kp value need_to_restart
     | 3 ->
+      Log.debug (fun m -> m "insert %02x into N256" k);
       (* TODO(dinosaure): [P-ART] uses [insertCompact<N256>] and [ROWEX]
          just do a simple [insert]. I'm not sure about this part! *)
       let* _  = add_child_n256 (N256 n) k value true in

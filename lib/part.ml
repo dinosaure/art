@@ -10,8 +10,8 @@ type 'c capabilities =
   | Writer : rdwr capabilities
 
 type ('fd, 'c) fd =
-  | Unix_file_descr : Unix.file_descr -> (Unix.file_descr, rdwr) fd
-  | None : (none, ro) fd
+  | Truncate_and_file_descr : Ipc.t * Unix.file_descr -> (Unix.file_descr, rdwr) fd
+  | Truncate : Ipc.t -> (none, ro) fd
 and none = |
 
 let reader uid = Reader uid
@@ -33,7 +33,7 @@ type ('p, 'q, 'a) t =
   | Create : string * int -> (closed, closed, (unit, [> `Msg of string ]) result) t
   | Close : ('c opened, closed, unit) t
   | Find : key -> ('c rd opened, 'c rd opened, int) t
-  | Insert : key * int -> (rdwr opened, rdwr opened, unit) t
+  | Insert : key * int -> (rdwr opened, rdwr opened, (unit, [> `Already_exists ]) result) t
 
 let return x = Return x
 let open_index c ~path = Open (c, path)
@@ -43,6 +43,11 @@ let close = Close
 let bind x f = Bind (x, f)
 let create ?(len= 1048576) path = Create (path, len)
 let ( let* ) = bind
+
+
+let is_closed : type v. v state -> bool = function
+  | Closed -> true
+  | Opened _ -> false
 
 (* XXX(dinosaure): an explanation is needed between [truncate] and [remap].
  * [truncate] updates the size of the index file and invalidate any current
@@ -99,10 +104,10 @@ let rec waiting_readers trc readers =
     waiting_readers trc readers
 
 let truncate
-  : type v c. Ipc.t -> Ipc.t -> (v, c) fd -> readers:int Persistent.Hashset.t -> Persistent.memory -> len:int64 -> Persistent.memory
-  = fun ipc trc -> function
-  | None -> fun ~readers:_ _memory ~len:_ -> failwith "Illegal truncate"
-  | Unix_file_descr fd -> fun ~readers memory ~len ->
+  : type v c. Ipc.t -> (v, c) fd -> readers:int Persistent.Hashset.t -> Persistent.memory -> len:int64 -> Persistent.memory
+  = fun ipc -> function
+  | Truncate _ -> fun ~readers:_ _memory ~len:_ -> failwith "Illegal truncate"
+  | Truncate_and_file_descr (trc, fd) -> fun ~readers memory ~len ->
     let old = Unix.LargeFile.fstat fd in
     let len = Int64.(div (add len (of_int page_size)) (of_int page_size)) in
     let len = Int64.(mul len (of_int page_size)) in
@@ -142,7 +147,8 @@ let rec run
     Persistent.(run mmu (Persistent.find mmu key))
   | Insert (key, value), Opened (mmu, capabilities, fd) ->
     Opened (mmu, capabilities, fd),
-    Persistent.(run mmu (insert mmu key value))
+    ( try Persistent.(run mmu (insert mmu key value)) ; Ok ()
+      with Rowex.Duplicate -> Error `Already_exists )
   | Open (Reader uid, path), Closed ->
     let ipc = Ipc.connect (Fmt.str "%s.socket" path) in
     let trc = Ipc.connect (Fmt.str "%s-truncate.socket" path) in
@@ -155,12 +161,14 @@ let rec run
       let memory = Bigarray.array1_of_genarray memory in
       Unix.close fd ; memory in
     let memory = Ipc.with_lock ~f ipc in
-    let mmu = Persistent.ro ~truncate:(truncate ipc trc None) ipc memory in
+    let mmu = Persistent.ro ~truncate:(truncate ipc (Truncate trc)) ipc memory in
     Sys.set_signal Sys.sigusr1 (Signal_handle (remap trc path mmu)) ;
-    Ipc.enqueue ipc uid ; Opened (mmu, Reader uid, None), ()
-  | Close, Opened (mmu, Reader uid, _) ->
+    (* TODO(dinosaure): keep [trc] to properly close it! *)
+    Ipc.enqueue ipc uid ; Opened (mmu, Reader uid, Truncate trc), ()
+  | Close, Opened (mmu, Reader uid, Truncate trc) ->
     let ipc = Persistent.ipc mmu in
-    Ipc.enqueue ipc uid ; Closed, ()
+    Ipc.enqueue ipc uid ;
+    Ipc.close ipc ; Ipc.close trc ; Closed, ()
   | Open (Writer, path), Closed ->
     let fd = Unix.openfile path Unix.[ O_RDWR ] 0o644 in
     let len = ((Unix.fstat fd).st_size + page_size) / page_size in
@@ -171,8 +179,9 @@ let rec run
     let ipc = Ipc.connect (Fmt.str "%s.socket" path) in
     let trc = Ipc.connect (Fmt.str "%s-truncate.socket" path) in
     let mmu = Persistent.rdwr
-      ~truncate:(truncate ipc trc (Unix_file_descr fd)) ipc memory in
-    Opened (mmu, Writer, Unix_file_descr fd), ()
+      ~truncate:(truncate ipc (Truncate_and_file_descr (trc, fd))) ipc memory in
+    (* TODO(dinosaure): keep [trc] to properly close it! *)
+    Opened (mmu, Writer, Truncate_and_file_descr (trc, fd)), ()
   | Create (path, len), Closed ->
     let fd = Unix.openfile path Unix.[ O_CREAT; O_RDWR ] 0o644 in
     let _  = Unix.lseek fd len Unix.SEEK_SET in
@@ -187,12 +196,14 @@ let rec run
       let ipc = Ipc.connect (Fmt.str "%s.socket" path) in
       let trc = Ipc.connect (Fmt.str "%s-truncate.socket" path) in
       let _mmu = Persistent.rdwr
-        ~truncate:(truncate ipc trc None) ipc memory in
+        ~truncate:(truncate ipc (Truncate trc)) ipc memory in
       let _mmu = Persistent.run _mmu
-        (Persistent.make ~truncate:(truncate ipc trc None) ipc memory) in
-      Ipc.close ipc ; Unix.close fd ; Closed, Ok ()
+        (Persistent.make ~truncate:(truncate ipc (Truncate trc)) ipc memory) in
+      Ipc.close ipc ; Ipc.close trc ; Unix.close fd ; Closed, Ok ()
     | Error err, _ | _, Error err -> Closed, Error err )
-  | Close, Opened (_mmu, Writer, Unix_file_descr fd) ->
+  | Close, Opened (mmu, Writer, (Truncate_and_file_descr (trc, fd))) ->
+    let ipc = Persistent.ipc mmu in
+    Ipc.close ipc ; Ipc.close trc ;
     Unix.close fd ; Closed, ()   
 
 (* XXX(dinosaure): see ocaml/ocaml#12161 *)

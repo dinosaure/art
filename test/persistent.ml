@@ -38,8 +38,8 @@ let state_of_optional_path = function
 
 let insert state key value =
   match Part.(run state (insert key value)) with
-  | state, () -> Ok state
-  | exception Rowex.Duplicate -> Error (`Duplicate state)
+  | state, Ok () -> Ok state
+  | state, Error `Already_exists -> Error (`Duplicate state)
 
 let find state key =
   match Part.(run state (find key)) with
@@ -73,13 +73,13 @@ let test01 =
   let state = state_of_optional_path path in
   let th0 =
     let open Part in
-    let* () = insert (Rowex.key "abc") 1 in
+    let* _ = insert (Rowex.key "abc") 1 in
     let* v' = find (Rowex.key "abc") in
     Alcotest.(check int) "abc" v' 1 ;
-    let* () = insert (Rowex.key "ab") 2 in
+    let* _ = insert (Rowex.key "ab") 2 in
     let* v' = find (Rowex.key "ab") in
     Alcotest.(check int) "ab" v' 2 ;
-    let* () = insert (Rowex.key "abcde") 3 in
+    let* _ = insert (Rowex.key "abcde") 3 in
     let* v0 = find (Rowex.key "abc") in
     let* v1 = find (Rowex.key "ab") in
     let* v2 = find (Rowex.key "abcde") in
@@ -97,10 +97,10 @@ let test02 =
   let state = state_of_optional_path path in
   let th0 =
     let open Part in
-    let* () = insert (Rowex.key "a0") 0 in
-    let* () = insert (Rowex.key "a1") 1 in
-    let* () = insert (Rowex.key "a2") 2 in
-    let* () = insert (Rowex.key "a3") 3 in
+    let* _ = insert (Rowex.key "a0") 0 in
+    let* _ = insert (Rowex.key "a1") 1 in
+    let* _ = insert (Rowex.key "a2") 2 in
+    let* _ = insert (Rowex.key "a3") 3 in
     let* v0 = find (Rowex.key "a0") in
     let* v1 = find (Rowex.key "a1") in
     let* v2 = find (Rowex.key "a2") in
@@ -109,7 +109,7 @@ let test02 =
     Alcotest.(check int) "a1" v1 1 ;
     Alcotest.(check int) "a2" v2 2 ;
     Alcotest.(check int) "a3" v3 3 ;
-    let* () = insert (Rowex.key "a4") 4 in
+    let* _ = insert (Rowex.key "a4") 4 in
     let* v0 = find (Rowex.key "a0") in
     let* v1 = find (Rowex.key "a1") in
     let* v2 = find (Rowex.key "a2") in
@@ -141,7 +141,7 @@ let test03 =
     let rec go0 = function
       | [] -> return ()
       | (k, v) :: r ->
-        let* () = Part.insert (Rowex.key k) v in
+        let* _ = Part.insert (Rowex.key k) v in
         Alcotest.(check pass) (Fmt.str "insert %S" k) () () ;
         go0 r in
     let* () = go0 vs in
@@ -162,14 +162,14 @@ let test04 =
   let state = state_of_optional_path path in
   let th0 =
     let open Part in
-    let* () = insert (Rowex.key "stone@meekness.com") 0 in
-    let* () = insert (Rowex.key "ca-tech@dps,centrin.net.id") 1 in
-    let* () = insert (Rowex.key "trinanda_lestyowati@elkomsel.co.id") 2 in
-    let* () = insert (Rowex.key "asst_dos@asonrasuna.com") 3 in
-    let* () = insert (Rowex.key "amartabali@dps.centrim.net.id") 4 in
-    let* () = insert (Rowex.key "achatv@cbn.net.id") 5 in
-    let* () = insert (Rowex.key "bali@tuguhotels.com") 6 in
-    let* () = insert (Rowex.key "baliminimalist@yahoo.com") 7 in (* prefix with [li] on a n16 node *)
+    let* _ = insert (Rowex.key "stone@meekness.com") 0 in
+    let* _ = insert (Rowex.key "ca-tech@dps,centrin.net.id") 1 in
+    let* _ = insert (Rowex.key "trinanda_lestyowati@elkomsel.co.id") 2 in
+    let* _ = insert (Rowex.key "asst_dos@asonrasuna.com") 3 in
+    let* _ = insert (Rowex.key "amartabali@dps.centrim.net.id") 4 in
+    let* _ = insert (Rowex.key "achatv@cbn.net.id") 5 in
+    let* _ = insert (Rowex.key "bali@tuguhotels.com") 6 in
+    let* _ = insert (Rowex.key "baliminimalist@yahoo.com") 7 in (* prefix with [li] on a n16 node *)
     let* v0 = find (Rowex.key "bali@tuguhotels.com") in
     let* v1 = find (Rowex.key "baliminimalist@yahoo.com") in
     Alcotest.(check int) "bali@tuguhotels.com" v0 6 ;
@@ -185,7 +185,7 @@ let test05 =
   let state = state_of_optional_path path in
   let th0 =
     let open Part in
-    let* () = insert (Rowex.key "bliss@thebale.com") 8 in
+    let* _ = insert (Rowex.key "bliss@thebale.com") 8 in
     let* v0 = find (Rowex.key "bali@tuguhotels.com") in
     let* v1 = find (Rowex.key "baliminimalist@yahoo.com") in
     let* v2 = find (Rowex.key "bliss@thebale.com") in
@@ -261,14 +261,14 @@ let test06 =
     let rec go0 idx = function
       | [] -> return ()
       | key :: r ->
-        let* () = insert (Rowex.key key) idx in
+        let* _ = insert (Rowex.key key) idx in
         go0 (succ idx) r in
     (* let reporter = Logs.reporter () in
        Logs.set_reporter Logs.nop_reporter ;
        Fmt.epr "%a\n%!" Part.pp state ;
        Logs.set_reporter reporter ; *)
     let* () = go0 0 elts in
-    let* () = insert (Rowex.key "garudawisata@indo.net.id") (-1) in
+    let* _ = insert (Rowex.key "garudawisata@indo.net.id") (-1) in
     (* let reporter = Logs.reporter () in
        Logs.set_reporter Logs.nop_reporter ;
        Fmt.epr "%a\n%!" Part.pp state ;
@@ -373,14 +373,14 @@ let test07 =
       let rec go0 idx = function
         | [] -> return ()
         | key :: r ->
-          let* () = insert (Rowex.key key) idx in
+          let* _ = insert (Rowex.key key) idx in
           go0 (succ idx) r in
       let* () = go0 0 elts in
       (* let reporter = Logs.reporter () in
          Logs.set_reporter Logs.nop_reporter ;
          Fmt.epr "%a\n%!" Part.pp state ;
          Logs.set_reporter reporter ; *)
-      let* () = insert (Rowex.key "galaxygarden2006@yahoo.com") (-1) in
+      let* _ = insert (Rowex.key "galaxygarden2006@yahoo.com") (-1) in
       (* let reporter = Logs.reporter () in
          Logs.set_reporter Logs.nop_reporter ;
          Fmt.epr "%a\n%!" Part.pp state ;
@@ -681,14 +681,14 @@ let test08 =
       let rec go0 idx = function
         | [] -> return ()
         | key :: r ->
-          let* () = insert (Rowex.key key) idx in
+          let* _ = insert (Rowex.key key) idx in
           go0 (succ idx) r in
       let* () = go0 0 elts in
       (* let reporter = Logs.reporter () in
          Logs.set_reporter Logs.nop_reporter ;
          Fmt.epr "%a\n%!" Part.pp state ;
          Logs.set_reporter reporter ; *)
-      let* () = insert (Rowex.key "sales@pica-pica.com,") (-1) in
+      let* _ = insert (Rowex.key "sales@pica-pica.com,") (-1) in
       (* let reporter = Logs.reporter () in
          Logs.set_reporter Logs.nop_reporter ;
          Fmt.epr "%a\n%!" Part.pp state ;
@@ -1044,14 +1044,14 @@ let test09 =
       let rec go0 idx = function
         | [] -> return ()
         | key :: r ->
-          let* () = insert (Rowex.key key) idx in
+          let* _ = insert (Rowex.key key) idx in
           go0 (succ idx) r in
       let* () = go0 0 elts in
       (* let reporter = Logs.reporter () in
          Logs.set_reporter Logs.nop_reporter ;
          Fmt.epr "%a\n%!" Part.pp state ;
          Logs.set_reporter reporter ; *)
-      let* () = insert (Rowex.key "reservation@ramacandidasahotel.com,") (-1) in
+      let* _ = insert (Rowex.key "reservation@ramacandidasahotel.com,") (-1) in
       (* let reporter = Logs.reporter () in
          Logs.set_reporter Logs.nop_reporter ;
          Fmt.epr "%a\n%!" Part.pp state ;
@@ -1897,14 +1897,14 @@ let test10 =
       let rec go0 idx = function
         | [] -> return ()
         | key :: r ->
-          let* () = insert (Rowex.key key) idx in
+          let* _ = insert (Rowex.key key) idx in
           go0 (succ idx) r in
-      let* () = go0 0 elts in
+      let* _ = go0 0 elts in
       (* let reporter = Logs.reporter () in
          Logs.set_reporter Logs.nop_reporter ;
          Fmt.epr "%a\n%!" Part.pp state ;
          Logs.set_reporter reporter ; *)
-      let* () = insert (Rowex.key "novyog@indo.net.id") (-1) in
+      let* _ = insert (Rowex.key "novyog@indo.net.id") (-1) in
       (* let reporter = Logs.reporter () in
          Logs.set_reporter Logs.nop_reporter ;
          Fmt.epr "%a\n%!" Part.pp state ;
