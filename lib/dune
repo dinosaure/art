@@ -11,7 +11,7 @@
  (name rowex)
  (modules rowex)
  (public_name rowex)
- (libraries atomic ipc fmt logs)
+ (libraries hxd.core hxd.string atomic ipc fmt logs)
  (ocamlopt_flags -O3)
  (foreign_stubs
   (language c)

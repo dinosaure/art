@@ -60,24 +60,26 @@ val writer : rdwr capabilities
 
 type 'a opened constraint 'a = < .. >
 type closed
-
 type ('p, 'q, 'a) t
 type 'v state
 
 val closed : closed state
-
 val return : 'a -> ('p, 'p, 'a) t
 val open_index : 'c capabilities -> path:string -> (closed, 'c opened, unit) t
 val find : key -> ('c rd opened, 'c rd opened, int) t
-val insert : key -> int -> (rdwr opened, rdwr opened, (unit, [> `Already_exists ]) result) t
+
+val insert :
+  key ->
+  int ->
+  (rdwr opened, rdwr opened, (unit, [> `Already_exists ]) result) t
+
+val remove : key -> (rdwr opened, rdwr opened, unit) t
 val close : ('c opened, closed, unit) t
 
-val create : ?len:int -> string
-  -> (closed, closed, (unit, [> `Msg of string ]) result) t
+val create :
+  ?len:int -> string -> (closed, closed, (unit, [> `Msg of string ]) result) t
 
 val bind : ('p, 'q, 'a) t -> ('a -> ('q, 'r, 'b) t) -> ('p, 'r, 'b) t
-
 val run : 'p state -> ('p, 'q, 'a) t -> 'q state * 'a
 val is_closed : 'p state -> bool
-
 val ( let* ) : ('p, 'q, 'a) t -> ('a -> ('q, 'r, 'b) t) -> ('p, 'r, 'b) t

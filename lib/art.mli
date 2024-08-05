@@ -18,7 +18,6 @@ type key = private string
 (** The type of the tree keys. A {i null-terminated} [string]. *)
 
 val key : string -> key
-
 external unsafe_key : string -> key = "%identity"
 
 val make : unit -> 'a t
@@ -67,7 +66,8 @@ val of_seq : (key * 'a) Seq.t -> 'a t
 val to_seq : 'a t -> (key * 'a) Seq.t
 (** Iterate on the whole map, in increasing order of keys. *)
 
-val prefix_iter : prefix:key -> f:(key -> 'a -> 'acc -> 'acc) -> 'acc -> 'a t -> 'acc
+val prefix_iter :
+  prefix:key -> f:(key -> 'a -> 'acc -> 'acc) -> 'acc -> 'a t -> 'acc
 (** [prefix_iter ~prefix ~f a t] computes [(f kN dN .. (f k1 d1 a) ...)], where
    [k1 ... kN] are prefixed by [prefix] in [t] (in increasing order),
    and [d1 ... dN] are associated data.

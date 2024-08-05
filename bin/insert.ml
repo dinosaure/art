@@ -3,15 +3,18 @@ open Rresult
 let reporter ppf =
   let report src level ~over k msgf =
     let k _ =
-      over () ;
-      k () in
+      over ();
+      k ()
+    in
     let with_metadata header _tags k ppf fmt =
       Format.kfprintf k ppf
         ("%a[%a]: " ^^ fmt ^^ "\n%!")
         Logs_fmt.pp_header (level, header)
         Fmt.(styled `Magenta string)
-        (Logs.Src.name src) in
-    msgf @@ fun ?header ?tags fmt -> with_metadata header tags k ppf fmt in
+        (Logs.Src.name src)
+    in
+    msgf @@ fun ?header ?tags fmt -> with_metadata header tags k ppf fmt
+  in
   { Logs.report }
 
 let insert _ path (key : Rowex.key) value =
@@ -23,15 +26,20 @@ let insert _ path (key : Rowex.key) value =
     match res with
     | Ok () -> return (`Ok ())
     | Error `Already_exists ->
-      return (`Error (false, Fmt.str "%S already exists into %a." (key :> string) Fpath.pp path)) in
+        return
+          (`Error
+            ( false,
+              Fmt.str "%S already exists into %a." (key :> string) Fpath.pp path
+            ))
+  in
   Part.(run closed th0) |> snd
 
 open Cmdliner
 
 let setup_logs style_renderer level =
-  Fmt_tty.setup_std_outputs ?style_renderer () ;
-  Logs.set_level level ;
-  Logs.set_reporter (reporter Fmt.stderr) ;
+  Fmt_tty.setup_std_outputs ?style_renderer ();
+  Logs.set_level level;
+  Logs.set_reporter (reporter Fmt.stderr);
   Option.is_none level
 
 let common_options = "COMMON OPTIONS"
@@ -47,17 +55,19 @@ let renderer =
 let setup_logs = Term.(const setup_logs $ renderer $ verbosity)
 
 let existing_file =
-  let parser str = match Fpath.of_string str with
-    | Ok _ as v when Sys.file_exists str 
-                  && Sys.file_exists (str ^ ".socket") -> v
+  let parser str =
+    match Fpath.of_string str with
+    | Ok _ as v when Sys.file_exists str && Sys.file_exists (str ^ ".socket") ->
+        v
     | Ok v -> R.error_msgf "%a (or its socket) does not exist." Fpath.pp v
-    | Error _ as err -> err in
+    | Error _ as err -> err
+  in
   Arg.conv (parser, Fpath.pp)
 
 let key =
   let parser str =
-    try R.ok (Rowex.key str)
-    with _ -> R.error_msgf "Invalid key: %S" str in
+    try R.ok (Rowex.key str) with _ -> R.error_msgf "Invalid key: %S" str
+  in
   let pp : Rowex.key Fmt.t = fun ppf key -> Fmt.string ppf (key :> string) in
   Arg.conv (parser, pp)
 
@@ -74,10 +84,18 @@ let value =
   Arg.(required & pos 2 (some int) None & info [] ~doc)
 
 let cmd =
-  let doc = "A simple executable to insert an occurence into a index file with a specific value." in
+  let doc =
+    "A simple executable to insert an occurence into a index file with a \
+     specific value."
+  in
   let man =
-    [ `S Manpage.s_description
-    ; `P "$(tname) inserts a value associated with the given key into the given index." ] in
+    [
+      `S Manpage.s_description;
+      `P
+        "$(tname) inserts a value associated with the given key into the given \
+         index.";
+    ]
+  in
   Cmd.v
     (Cmd.info "insert" ~doc ~man)
     Term.(ret (const insert $ setup_logs $ file $ key $ value))

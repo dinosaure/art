@@ -1,6 +1,7 @@
 open Rowex
 
 let src = Logs.Src.create "part"
+
 module Log = (val Logs.src_log src : Logs.LOG)
 
 external msync : Persistent.memory -> unit = "part_msync" [@@noalloc]
@@ -10,8 +11,11 @@ type 'c capabilities =
   | Writer : rdwr capabilities
 
 type ('fd, 'c) fd =
-  | Truncate_and_file_descr : Ipc.t * Unix.file_descr -> (Unix.file_descr, rdwr) fd
+  | Truncate_and_file_descr :
+      Ipc.t * Unix.file_descr
+      -> (Unix.file_descr, rdwr) fd
   | Truncate : Ipc.t -> (none, ro) fd
+
 and none = |
 
 let reader uid = Reader uid
@@ -21,7 +25,9 @@ type 'c opened = | constraint 'c = < .. >
 type closed = |
 
 type 'v state =
-  | Opened : 'c Persistent.mmu * 'c capabilities * ('fd, 'c) fd -> 'c opened state
+  | Opened :
+      'c Persistent.mmu * 'c capabilities * ('fd, 'c) fd
+      -> 'c opened state
   | Closed : closed state
 
 let closed = Closed
@@ -30,20 +36,25 @@ type ('p, 'q, 'a) t =
   | Return : 'a -> ('p, 'p, 'a) t
   | Bind : ('p, 'q, 'a) t * ('a -> ('q, 'r, 'b) t) -> ('p, 'r, 'b) t
   | Open : 'c capabilities * string -> (closed, 'c opened, unit) t
-  | Create : string * int -> (closed, closed, (unit, [> `Msg of string ]) result) t
+  | Create :
+      string * int
+      -> (closed, closed, (unit, [> `Msg of string ]) result) t
   | Close : ('c opened, closed, unit) t
   | Find : key -> ('c rd opened, 'c rd opened, int) t
-  | Insert : key * int -> (rdwr opened, rdwr opened, (unit, [> `Already_exists ]) result) t
+  | Remove : key -> (rdwr opened, rdwr opened, unit) t
+  | Insert :
+      key * int
+      -> (rdwr opened, rdwr opened, (unit, [> `Already_exists ]) result) t
 
 let return x = Return x
 let open_index c ~path = Open (c, path)
 let find key = Find key
 let insert key value = Insert (key, value)
+let remove key = Remove key
 let close = Close
 let bind x f = Bind (x, f)
-let create ?(len= 1048576) path = Create (path, len)
+let create ?(len = 1048576) path = Create (path, len)
 let ( let* ) = bind
-
 
 let is_closed : type v. v state -> bool = function
   | Closed -> true
@@ -94,117 +105,168 @@ let signal_readers readers =
 let rec waiting_readers trc readers =
   match Persistent.Hashset.cardinal readers with
   | 0 -> ()
-  | _len when Ipc.is_empty trc ->
-    waiting_readers trc readers
+  | _len when Ipc.is_empty trc -> waiting_readers trc readers
   | _len ->
-    let pid = Ipc.dequeue trc in
-    let pid = Int64.to_int pid in
-    if Persistent.Hashset.mem readers pid
-    then Persistent.Hashset.remove readers pid ;
-    waiting_readers trc readers
+      let pid = Ipc.dequeue trc in
+      let pid = Int64.to_int pid in
+      if Persistent.Hashset.mem readers pid then
+        Persistent.Hashset.remove readers pid;
+      waiting_readers trc readers
 
-let truncate
-  : type v c. Ipc.t -> (v, c) fd -> readers:int Persistent.Hashset.t -> Persistent.memory -> len:int64 -> Persistent.memory
-  = fun ipc -> function
+let truncate :
+    type v c.
+    Ipc.t ->
+    (v, c) fd ->
+    readers:int Persistent.Hashset.t ->
+    Persistent.memory ->
+    len:int64 ->
+    Persistent.memory =
+ fun ipc -> function
   | Truncate _ -> fun ~readers:_ _memory ~len:_ -> failwith "Illegal truncate"
-  | Truncate_and_file_descr (trc, fd) -> fun ~readers memory ~len ->
-    let old = Unix.LargeFile.fstat fd in
-    let len = Int64.(div (add len (of_int page_size)) (of_int page_size)) in
-    let len = Int64.(mul len (of_int page_size)) in
-    try
-      let f _ipc =
-        signal_readers readers ; waiting_readers trc readers ; msync memory ;
-        Unix.LargeFile.ftruncate fd len ;
-        let memory = Mmap.V1.map_file fd
-          ~pos:0L Bigarray.char Bigarray.c_layout true [| Int64.to_int len |] in
-        Bigarray.array1_of_genarray memory in
-      Ipc.with_lock ~f ipc
-    with Unix.Unix_error (err, f, arg) as exn ->
-      Log.err (fun m -> m "%s(%s) : %s (ftruncate 'fd:%Ld ~len:%Ld)"
-        f arg (Unix.error_message err) old.Unix.LargeFile.st_size len) ;
-      raise exn
+  | Truncate_and_file_descr (trc, fd) -> (
+      fun ~readers memory ~len ->
+        let old = Unix.LargeFile.fstat fd in
+        let len = Int64.(div (add len (of_int page_size)) (of_int page_size)) in
+        let len = Int64.(mul len (of_int page_size)) in
+        try
+          let f _ipc =
+            signal_readers readers;
+            waiting_readers trc readers;
+            msync memory;
+            Unix.LargeFile.ftruncate fd len;
+            let memory =
+              Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true
+                [| Int64.to_int len |]
+            in
+            Bigarray.array1_of_genarray memory
+          in
+          Ipc.with_lock ~f ipc
+        with Unix.Unix_error (err, f, arg) as exn ->
+          Log.err (fun m ->
+              m "%s(%s) : %s (ftruncate 'fd:%Ld ~len:%Ld)" f arg
+                (Unix.error_message err) old.Unix.LargeFile.st_size len);
+          raise exn)
 
 let rec remap trc path mmu _sigusr1 =
   let f _ipc =
     let fd = Unix.openfile path Unix.[ O_RDWR ] 0o644 in
     let len = (Unix.fstat fd).st_size in
-    let memory = Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
+    let memory =
+      Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true [| len |]
+    in
     let memory = Bigarray.array1_of_genarray memory in
-    Unix.close fd ; memory in
-  Ipc.enqueue trc (Int64.of_int (Unix.getpid ())) ;
+    Unix.close fd;
+    memory
+  in
+  Ipc.enqueue trc (Int64.of_int (Unix.getpid ()));
   let memory = Ipc.with_lock ~f (Persistent.ipc mmu) in
-  Persistent.unsafe_set_memory mmu memory ;
-  Log.info (fun m -> m "Reader updated its virtual memory.") ;
+  Persistent.unsafe_set_memory mmu memory;
+  Log.info (fun m -> m "Reader updated its virtual memory.");
   Sys.set_signal Sys.sigusr1 (Signal_handle (remap trc path mmu))
 
-let rec run
-  : type a p q. p state -> (p, q, a) t -> q state * a
-  = fun s m -> match m, s with
-  | Return x, _ -> s, x
-  | Bind (m, f), _ -> let s, x = run s m in run s (f x)
+let rec run : type a p q. p state -> (p, q, a) t -> q state * a =
+ fun s m ->
+  match (m, s) with
+  | Return x, _ -> (s, x)
+  | Bind (m, f), _ ->
+      let s, x = run s m in
+      run s (f x)
   | Find key, Opened (mmu, capabilities, fd) ->
-    Opened (mmu, capabilities, fd),
-    Persistent.(run mmu (Persistent.find mmu key))
+      ( Opened (mmu, capabilities, fd),
+        Persistent.(run mmu (Persistent.find mmu key)) )
+  | Remove key, Opened (mmu, capabilities, fd) ->
+      ( Opened (mmu, capabilities, fd),
+        Persistent.(run mmu (Persistent.remove mmu key)) )
   | Insert (key, value), Opened (mmu, capabilities, fd) ->
-    Opened (mmu, capabilities, fd),
-    ( try Persistent.(run mmu (insert mmu key value)) ; Ok ()
-      with Rowex.Duplicate -> Error `Already_exists )
+      ( Opened (mmu, capabilities, fd),
+        try
+          Persistent.(run mmu (insert mmu key value));
+          Ok ()
+        with Rowex.Duplicate -> Error `Already_exists )
   | Open (Reader uid, path), Closed ->
-    let ipc = Ipc.connect (Fmt.str "%s.socket" path) in
-    let trc = Ipc.connect (Fmt.str "%s-truncate.socket" path) in
-    let f _ipc =
+      let ipc = Ipc.connect (Fmt.str "%s.socket" path) in
+      let trc = Ipc.connect (Fmt.str "%s-truncate.socket" path) in
+      let f _ipc =
+        let fd = Unix.openfile path Unix.[ O_RDWR ] 0o644 in
+        let len = ((Unix.fstat fd).st_size + page_size) / page_size in
+        let len = len * page_size in
+        let memory =
+          Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true
+            [| len |]
+        in
+        let memory = Bigarray.array1_of_genarray memory in
+        Unix.close fd;
+        memory
+      in
+      let memory = Ipc.with_lock ~f ipc in
+      let mmu =
+        Persistent.ro ~truncate:(truncate ipc (Truncate trc)) ipc memory
+      in
+      Sys.set_signal Sys.sigusr1 (Signal_handle (remap trc path mmu));
+      (* TODO(dinosaure): keep [trc] to properly close it! *)
+      Ipc.enqueue ipc uid;
+      (Opened (mmu, Reader uid, Truncate trc), ())
+  | Close, Opened (mmu, Reader uid, Truncate trc) ->
+      let ipc = Persistent.ipc mmu in
+      Ipc.enqueue ipc uid;
+      Ipc.close ipc;
+      Ipc.close trc;
+      (Closed, ())
+  | Open (Writer, path), Closed ->
       let fd = Unix.openfile path Unix.[ O_RDWR ] 0o644 in
       let len = ((Unix.fstat fd).st_size + page_size) / page_size in
       let len = len * page_size in
-      let memory = Mmap.V1.map_file fd
-        ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
+      let memory =
+        Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true
+          [| len |]
+      in
       let memory = Bigarray.array1_of_genarray memory in
-      Unix.close fd ; memory in
-    let memory = Ipc.with_lock ~f ipc in
-    let mmu = Persistent.ro ~truncate:(truncate ipc (Truncate trc)) ipc memory in
-    Sys.set_signal Sys.sigusr1 (Signal_handle (remap trc path mmu)) ;
-    (* TODO(dinosaure): keep [trc] to properly close it! *)
-    Ipc.enqueue ipc uid ; Opened (mmu, Reader uid, Truncate trc), ()
-  | Close, Opened (mmu, Reader uid, Truncate trc) ->
-    let ipc = Persistent.ipc mmu in
-    Ipc.enqueue ipc uid ;
-    Ipc.close ipc ; Ipc.close trc ; Closed, ()
-  | Open (Writer, path), Closed ->
-    let fd = Unix.openfile path Unix.[ O_RDWR ] 0o644 in
-    let len = ((Unix.fstat fd).st_size + page_size) / page_size in
-    let len = len * page_size in
-    let memory = Mmap.V1.map_file fd
-      ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
-    let memory = Bigarray.array1_of_genarray memory in
-    let ipc = Ipc.connect (Fmt.str "%s.socket" path) in
-    let trc = Ipc.connect (Fmt.str "%s-truncate.socket" path) in
-    let mmu = Persistent.rdwr
-      ~truncate:(truncate ipc (Truncate_and_file_descr (trc, fd))) ipc memory in
-    (* TODO(dinosaure): keep [trc] to properly close it! *)
-    Opened (mmu, Writer, Truncate_and_file_descr (trc, fd)), ()
-  | Create (path, len), Closed ->
-    let fd = Unix.openfile path Unix.[ O_CREAT; O_RDWR ] 0o644 in
-    let _  = Unix.lseek fd len Unix.SEEK_SET in
-    let len = (len + page_size) / page_size in
-    let len = len * page_size in
-    let memory = Mmap.V1.map_file fd
-      ~pos:0L Bigarray.char Bigarray.c_layout true [| len |] in
-    let memory = Bigarray.array1_of_genarray memory in
-    ( match Ipc.create (Fmt.str "%s.socket" path),
-            Ipc.create (Fmt.str "%s-truncate.socket" path) with
-    | Ok (), Ok () ->
       let ipc = Ipc.connect (Fmt.str "%s.socket" path) in
       let trc = Ipc.connect (Fmt.str "%s-truncate.socket" path) in
-      let _mmu = Persistent.rdwr
-        ~truncate:(truncate ipc (Truncate trc)) ipc memory in
-      let _mmu = Persistent.run _mmu
-        (Persistent.make ~truncate:(truncate ipc (Truncate trc)) ipc memory) in
-      Ipc.close ipc ; Ipc.close trc ; Unix.close fd ; Closed, Ok ()
-    | Error err, _ | _, Error err -> Closed, Error err )
-  | Close, Opened (mmu, Writer, (Truncate_and_file_descr (trc, fd))) ->
-    let ipc = Persistent.ipc mmu in
-    Ipc.close ipc ; Ipc.close trc ;
-    Unix.close fd ; Closed, ()   
+      let mmu =
+        Persistent.rdwr
+          ~truncate:(truncate ipc (Truncate_and_file_descr (trc, fd)))
+          ipc memory
+      in
+      (* TODO(dinosaure): keep [trc] to properly close it! *)
+      (Opened (mmu, Writer, Truncate_and_file_descr (trc, fd)), ())
+  | Create (path, len), Closed -> (
+      let fd = Unix.openfile path Unix.[ O_CREAT; O_RDWR ] 0o644 in
+      let _ = Unix.lseek fd len Unix.SEEK_SET in
+      let len = (len + page_size) / page_size in
+      let len = len * page_size in
+      let memory =
+        Mmap.V1.map_file fd ~pos:0L Bigarray.char Bigarray.c_layout true
+          [| len |]
+      in
+      let memory = Bigarray.array1_of_genarray memory in
+      match
+        ( Ipc.create (Fmt.str "%s.socket" path),
+          Ipc.create (Fmt.str "%s-truncate.socket" path) )
+      with
+      | Ok (), Ok () ->
+          let ipc = Ipc.connect (Fmt.str "%s.socket" path) in
+          let trc = Ipc.connect (Fmt.str "%s-truncate.socket" path) in
+          let _mmu =
+            Persistent.rdwr ~truncate:(truncate ipc (Truncate trc)) ipc memory
+          in
+          let _mmu =
+            Persistent.run _mmu
+              (Persistent.make
+                 ~truncate:(truncate ipc (Truncate trc))
+                 ipc memory)
+          in
+          Ipc.close ipc;
+          Ipc.close trc;
+          Unix.close fd;
+          (Closed, Ok ())
+      | Error err, _ | _, Error err -> (Closed, Error err))
+  | Close, Opened (mmu, Writer, Truncate_and_file_descr (trc, fd)) ->
+      let ipc = Persistent.ipc mmu in
+      Ipc.close ipc;
+      Ipc.close trc;
+      Unix.close fd;
+      (Closed, ())
 
 (* XXX(dinosaure): see ocaml/ocaml#12161 *)
 let () = at_exit Gc.full_major
