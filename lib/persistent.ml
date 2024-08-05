@@ -61,6 +61,10 @@ external atomic_fetch_sub_leuintnat : memory -> int -> int -> int
   = "caml_atomic_fetch_sub_leuintnat"
 [@@noalloc]
 
+external atomic_fetch_sub_leuint16 : memory -> int -> int -> int
+  = "caml_atomic_fetch_sub_leuint16"
+[@@noalloc]
+
 external atomic_fetch_or_leuintnat : memory -> int -> int -> int
   = "caml_atomic_fetch_or_leuintnat"
 [@@noalloc]
@@ -273,6 +277,7 @@ include Make (S)
 let find { root; _ } key = find root key
 let insert { root; _ } key value = insert root key value
 let remove { root; _ } key = remove root key
+let exists { root; _ } key = exists root key
 
 let make ~truncate ipc memory =
   let ( >>= ) x f = S.bind x f in
@@ -440,6 +445,8 @@ let rec run : type c a. c mmu -> a t -> a =
       atomic_fetch_add_leuintnat memory (addr :> int) v
   | Fetch_sub (addr, LEInt, v) ->
       atomic_fetch_sub_leuintnat memory (addr :> int) v
+  | Fetch_sub (addr, LEInt16, v) ->
+      atomic_fetch_sub_leuint16 memory (addr :> int) v
   | Fetch_or (addr, LEInt, v) ->
       atomic_fetch_or_leuintnat memory (addr :> int) v
   | Pause_intrinsic -> pause_intrinsic ()

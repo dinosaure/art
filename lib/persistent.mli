@@ -29,6 +29,7 @@ val rdwr : truncate:truncate -> Ipc.t -> memory -> rdwr mmu
 val find : 'c rd mmu -> key -> int t
 val insert : rdwr mmu -> key -> int -> unit t
 val remove : rdwr mmu -> key -> unit t
+val exists : 'c rd mmu -> key -> bool t
 val make : truncate:truncate -> Ipc.t -> memory -> rdwr mmu t
 val run : 'c mmu -> 'a t -> 'a
 val ipc : 'c mmu -> Ipc.t

@@ -240,6 +240,20 @@ caml_atomic_fetch_sub_leuintnat(value memory, value addr, value v)
 }
 
 CAMLprim value
+caml_atomic_fetch_sub_leuint16(value memory, value addr, value v)
+{
+  intnat res;
+#if defined(__aarch64__)
+  assert(is_aligned(memory_uint16_off (memory, addr), sizeof(uint16_t)));
+#endif
+#if defined(ART_BIG_ENDIAN)
+#error "atomic_fetch_sub on big-endian is not supported."
+  res = __atomic_fetch_sub(memory_uint16_off (memory, addr), Unsigned_long_val (v), memory_order_seq_cst) ;
+#endif
+  return Val_long (res) ;
+}
+
+CAMLprim value
 caml_atomic_fetch_or_leuintnat(value memory, value addr, value v)
 {
   intnat res;

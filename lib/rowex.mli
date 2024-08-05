@@ -130,6 +130,7 @@ module Make (S : S) : sig
   val pp : formatter -> 'a rd Addr.t -> unit t
   val find : 'a rd Addr.t -> key -> int t
   val insert : rdwr Addr.t -> key -> int -> unit t
+  val exists : 'a rd Addr.t -> key -> bool t
   val make : unit -> rdwr Addr.t t
   val remove : rdwr Addr.t -> key -> unit t
 

@@ -74,6 +74,7 @@ val insert :
   (rdwr opened, rdwr opened, (unit, [> `Already_exists ]) result) t
 
 val remove : key -> (rdwr opened, rdwr opened, unit) t
+val exists : key -> ('c rd opened, 'c rd opened, bool) t
 val close : ('c opened, closed, unit) t
 
 val create :

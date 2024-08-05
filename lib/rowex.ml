@@ -733,6 +733,27 @@ module Make (S : S) = struct
       if a.[i] <> b.[i] then raise Not_found
     done
 
+  let memeq a b =
+    if String.length a <> String.length b then false
+    else
+      let len = String.length a in
+      let len0 = len land 3 in
+      let len1 = len asr 2 in
+      let i = ref 0 and continue = ref true in
+      while !i < len1 && !continue do
+        let x = !i * 4 in
+        if String.unsafe_get_uint32 a x <> String.unsafe_get_uint32 b x then
+          continue := false;
+        incr i
+      done;
+      i := 0;
+      while !i < len0 && !continue do
+        let x = (len1 * 4) + !i in
+        if a.[x] <> b.[x] then continue := false;
+        incr i
+      done;
+      !continue
+
   (* XXX(dinosaure):
 
      [  ]: match
@@ -2152,6 +2173,59 @@ module Make (S : S) = struct
     Log.debug (fun m -> m "Remove");
     Log.debug (fun m -> m "@[<hov>%a@]" (Hxd_string.pp Hxd.default) key);
     remove root key
+
+  let rec _check_prefix ~key ~key_len ~prefix ~level idx max =
+    if idx < max then
+      if prefix.[idx] <> key.[level + idx] then false
+      else _check_prefix ~key ~key_len ~prefix ~level (succ idx) max
+    else true
+
+  let unoptimized_check_prefix (addr : _ rd Addr.t) ~key ~key_len level =
+    let* depth = get Addr.(addr + _header_depth) Value.leint31 in
+    if key_len < depth then return `Not_found
+    else
+      let* prefix, prefix_count = get_prefix addr in
+      if prefix_count + level < depth then return (`Match (depth - level))
+      else if prefix_count > 0 then
+        let idx = level + prefix_count - depth
+        and max = min prefix_count _prefix in
+        if not (_check_prefix ~key ~key_len ~prefix ~level idx max) then
+          return `Not_found
+        else if prefix_count > _prefix then
+          return (`Match (max + (prefix_count - _prefix)))
+        else return (`Match (-max))
+      else return (`Match 0)
+
+  let rec _exists (node : _ rd Addr.t) ~key ~key_len ~optimistic_match level =
+    let* res = unoptimized_check_prefix node ~key ~key_len level in
+    match res with
+    | `Not_found -> return false
+    | `Match res ->
+        let optimistic_match = if res > 0 then true else optimistic_match in
+        let level = level + abs res in
+        if key_len < level then return false
+        else
+          let* node = find_child node key.![level] in
+          if Addr.is_null node then return false
+          else if (node :> int) land 1 = 1 (* XXX(dinosaure): it is a leaf. *)
+          then
+            let leaf = Leaf.prj (Addr.unsafe_to_leaf node) in
+            if level < key_len - 1 || optimistic_match then (
+              let* key' = get leaf Value.c_string in
+              Log.debug (fun m -> m "memeq %S %S" key key');
+              return (memeq key key'))
+            else return true
+          else _exists node ~key ~key_len ~optimistic_match (succ level)
+
+  let exists : _ rd Addr.t -> key:string -> key_len:int -> bool t =
+   fun (node : _ rd Addr.t) ~key ~key_len ->
+    let node = Addr.unsafe_to_int node in
+    let node = Addr.of_int_to_rdonly node in
+    _exists node ~key ~key_len ~optimistic_match:false 0
+
+  let exists addr key =
+    let key_len = String.length key in
+    exists addr ~key ~key_len
 
   let make () =
     let* (N256 addr) = alloc_n256 ~prefix:"" ~prefix_count:0 ~level:0 in

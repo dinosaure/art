@@ -42,6 +42,7 @@ type ('p, 'q, 'a) t =
   | Close : ('c opened, closed, unit) t
   | Find : key -> ('c rd opened, 'c rd opened, int) t
   | Remove : key -> (rdwr opened, rdwr opened, unit) t
+  | Exists : key -> ('c rd opened, 'c rd opened, bool) t
   | Insert :
       key * int
       -> (rdwr opened, rdwr opened, (unit, [> `Already_exists ]) result) t
@@ -51,6 +52,7 @@ let open_index c ~path = Open (c, path)
 let find key = Find key
 let insert key value = Insert (key, value)
 let remove key = Remove key
+let exists key = Exists key
 let close = Close
 let bind x f = Bind (x, f)
 let create ?(len = 1048576) path = Create (path, len)
@@ -174,6 +176,9 @@ let rec run : type a p q. p state -> (p, q, a) t -> q state * a =
   | Find key, Opened (mmu, capabilities, fd) ->
       ( Opened (mmu, capabilities, fd),
         Persistent.(run mmu (Persistent.find mmu key)) )
+  | Exists key, Opened (mmu, capabilities, fd) ->
+      ( Opened (mmu, capabilities, fd),
+        Persistent.(run mmu (Persistent.exists mmu key)) )
   | Remove key, Opened (mmu, capabilities, fd) ->
       ( Opened (mmu, capabilities, fd),
         Persistent.(run mmu (Persistent.remove mmu key)) )
