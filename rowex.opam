@@ -23,6 +23,7 @@ depends: [
   "cmdliner" {>= "1.1.0"}
   "fpath"
   "mmap"
+  "hxd" {>= "0.3.2"}
   "crowbar" {>= "0.2" & with-test}
 ]
 available:
