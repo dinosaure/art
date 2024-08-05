@@ -13,8 +13,8 @@
 (*                                                                        *)
 (**************************************************************************)
 
-(* This module implements imperative sets as hash tables. 
-   Operations like union, intersection or difference are not provided, 
+(* This module implements imperative sets as hash tables.
+   Operations like union, intersection or difference are not provided,
    since there is no way to implement them easily (i.e. more easily than
    iterating over sets). *)
 
@@ -58,42 +58,42 @@ val fold : ('a -> 'b -> 'b) -> 'a t -> 'b -> 'b
    where [e1 ... eN] are the elements in [s].
    The order in which the elements are passed to [f] is unspecified. *)
 
-
 (*s Functorial interface *)
 
-module type HashedType =
-  sig
-    type t
-      (* The type of the elements. *)
-    val equal : t -> t -> bool
-      (* The equality predicate used to compare elements. *)
-    val hash : t -> int
-      (* A hashing function on elements. It must be such that if two elements are
-          equal according to [equal], then they have identical hash values
-          as computed by [hash].
-          Examples: suitable ([equal], [hash]) pairs for arbitrary element
-          types include
-          ([(=)], {!Hashset.hash}) for comparing objects by structure, and
-          ([(==)], {!Hashset.hash}) for comparing objects by addresses
-          (e.g. for mutable or cyclic keys). *)
-   end
+module type HashedType = sig
+  type t
+  (* The type of the elements. *)
+
+  val equal : t -> t -> bool
+  (* The equality predicate used to compare elements. *)
+
+  val hash : t -> int
+  (* A hashing function on elements. It must be such that if two elements are
+      equal according to [equal], then they have identical hash values
+      as computed by [hash].
+      Examples: suitable ([equal], [hash]) pairs for arbitrary element
+      types include
+      ([(=)], {!Hashset.hash}) for comparing objects by structure, and
+      ([(==)], {!Hashset.hash}) for comparing objects by addresses
+      (e.g. for mutable or cyclic keys). *)
+end
 
 (* The input signature of the functor {!Hashset.Make}. *)
 
-module type S =
-  sig
-    type elt
-    type t
-    val create : int -> t
-    val clear : t -> unit
-    val copy : t -> t
-    val add : t -> elt -> unit
-    val remove : t -> elt -> unit
-    val mem : t -> elt -> bool
-    val cardinal : t -> int
-    val iter : (elt -> unit) -> t -> unit
-    val fold : (elt -> 'a -> 'a) -> t -> 'a -> 'a
-  end
+module type S = sig
+  type elt
+  type t
+
+  val create : int -> t
+  val clear : t -> unit
+  val copy : t -> t
+  val add : t -> elt -> unit
+  val remove : t -> elt -> unit
+  val mem : t -> elt -> bool
+  val cardinal : t -> int
+  val iter : (elt -> unit) -> t -> unit
+  val fold : (elt -> 'a -> 'a) -> t -> 'a -> 'a
+end
 (* The output signature of the functor {!Hashset.Make}. *)
 
 module Make (H : HashedType) : S with type elt = H.t
@@ -104,4 +104,3 @@ module Make (H : HashedType) : S with type elt = H.t
     interface, but use the hashing and equality functions
     specified in the functor argument [H] instead of generic
     equality and hashing. *)
-

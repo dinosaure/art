@@ -1,12 +1,15 @@
 open Monolith
 open PPrint
 
-module Map = Map.Make (struct type t = Art.key let compare (a : Art.key) (b : Art.key) =
-  String.compare (a :> string) (b :> string) end)
+module Map = Map.Make (struct
+  type t = Art.key
 
-let char_without_d0 () = match Gen.char () with
-  | '\000' -> Gen.reject ()
-  | chr -> chr
+  let compare (a : Art.key) (b : Art.key) =
+    String.compare (a :> string) (b :> string)
+end)
+
+let char_without_d0 () =
+  match Gen.char () with '\000' -> Gen.reject () | chr -> chr
 
 let key =
   easily_constructible
@@ -39,12 +42,19 @@ module Reference = struct
   let make () = Hashtbl.create 0x100
   let is_empty tbl = Hashtbl.length tbl = 0
   let insert tbl key value = Hashtbl.add tbl key value
-  let find_opt tbl key = match Hashtbl.find tbl key with
-    | v -> Some v
-    | exception Not_found -> None
+
+  let find_opt tbl key =
+    match Hashtbl.find tbl key with v -> Some v | exception Not_found -> None
 end
 
-module Equivalence = Make (Reference) (struct include Art type t = int Art.t end)
+module Equivalence =
+  Make
+    (Reference)
+    (struct
+      include Art
+
+      type t = int Art.t
+    end)
 
 let () =
   let t = declare_abstract_type () in

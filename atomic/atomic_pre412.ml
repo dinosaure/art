@@ -17,9 +17,9 @@ external ( == ) : 'a -> 'a -> bool = "%eq"
 external ( + ) : int -> int -> int = "%addint"
 external ignore : 'a -> unit = "%ignore"
 
-type 'a t = {mutable v: 'a}
+type 'a t = { mutable v : 'a }
 
-let make v = {v}
+let make v = { v }
 let get r = r.v
 let set r v = r.v <- v
 
@@ -36,14 +36,13 @@ let[@inline never] compare_and_set r seen v =
   if cur == seen then (
     r.v <- v;
     (* END ATOMIC *)
-    true
-  ) else
-    false
+    true)
+  else false
 
 let[@inline never] fetch_and_add r n =
   (* BEGIN ATOMIC *)
   let cur = r.v in
-  r.v <- (cur + n);
+  r.v <- cur + n;
   (* END ATOMIC *)
   cur
 

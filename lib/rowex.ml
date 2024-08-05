@@ -2,21 +2,25 @@ let () = Printexc.record_backtrace true
 
 exception Duplicate
 
-let (.![]) = String.unsafe_get
+let ( .![] ) = String.unsafe_get
 (* XXX(dinosaure): see [art.ml] about this unsafe access. *)
 
 external ( <= ) : 'a -> 'a -> bool = "%lessequal"
+
 let ( <= ) (x : int) y = x <= y [@@inline]
 let min (a : int) b = if a <= b then a else b [@@inline]
 
 type key = string
 
-let key : string -> key = fun key ->
-  if String.contains key '\000' then invalid_arg "Invalid key" ; key
+let key : string -> key =
+ fun key ->
+  if String.contains key '\000' then invalid_arg "Invalid key";
+  key
 
 external unsafe_key : string -> key = "%identity"
 
 let src = Logs.Src.create "rowex"
+
 module Log = (val Logs.src_log src : Logs.LOG)
 
 module String = struct
@@ -31,7 +35,6 @@ external bytes_set64 : bytes -> int -> int64 -> unit = "%caml_bytes_set64u"
 external string_get16 : string -> int -> int = "%caml_string_get16u"
 
 let const x _ = x
-
 let size_of_word = Sys.word_size / 8
 
 external bswap64 : int64 -> int64 = "%bswap_int64"
@@ -43,51 +46,46 @@ external bswap32 : int32 -> int32 = "%bswap_int32"
    it's a shame to add these C functions. The compiler should add such
    primitives. *)
 
-external uint64_of_uint : int -> (int64[@unboxed]) =
-  "bytecode_compilation_not_supported"
-  "caml_uint64_of_uint" [@@noalloc]
+external uint64_of_uint : int -> (int64[@unboxed])
+  = "bytecode_compilation_not_supported" "caml_uint64_of_uint"
+[@@noalloc]
 
-external uint32_of_uint : int -> (int32[@unboxed]) =
-  "bytecode_compilation_not_supported"
-  "caml_uint32_of_uint" [@@noalloc]
+external uint32_of_uint : int -> (int32[@unboxed])
+  = "bytecode_compilation_not_supported" "caml_uint32_of_uint"
+[@@noalloc]
 
 let leintnat_to_string v =
-  if Sys.word_size = 64 && Sys.big_endian
-  then
+  if Sys.word_size = 64 && Sys.big_endian then (
     let v = bswap64 (uint64_of_uint v) in
     let res = Bytes.create 8 in
-    bytes_set64 res 0 v ;
-    Bytes.unsafe_to_string res
-  else if Sys.word_size = 64
-  then
+    bytes_set64 res 0 v;
+    Bytes.unsafe_to_string res)
+  else if Sys.word_size = 64 then (
     let v = uint64_of_uint v in
     let res = Bytes.create 8 in
-    bytes_set64 res 0 v ;
-    Bytes.unsafe_to_string res
-  else if Sys.word_size = 32 && Sys.big_endian
-  then
+    bytes_set64 res 0 v;
+    Bytes.unsafe_to_string res)
+  else if Sys.word_size = 32 && Sys.big_endian then (
     let v = bswap32 (uint32_of_uint v) in
     let res = Bytes.create 4 in
-    bytes_set32 res 0 v ;
-    Bytes.unsafe_to_string res
-  else if Sys.word_size = 32
-  then
+    bytes_set32 res 0 v;
+    Bytes.unsafe_to_string res)
+  else if Sys.word_size = 32 then (
     let v = uint32_of_uint v in
     let res = Bytes.create 4 in
-    bytes_set32 res 0 v ;
-    Bytes.unsafe_to_string res
+    bytes_set32 res 0 v;
+    Bytes.unsafe_to_string res)
   else assert false (* TODO? *)
 [@@inline]
 
 let leint31_to_string v =
-  if Sys.big_endian
-  then
+  if Sys.big_endian then (
     let res = Bytes.create 4 in
-    bytes_set32 res 0 (bswap32 (Int32.of_int v)) ;
-    Bytes.unsafe_to_string res
+    bytes_set32 res 0 (bswap32 (Int32.of_int v));
+    Bytes.unsafe_to_string res)
   else
     let res = Bytes.create 4 in
-    bytes_set32 res 0 (Int32.of_int v) ;
+    bytes_set32 res 0 (Int32.of_int v);
     Bytes.unsafe_to_string res
 [@@inline]
 
@@ -124,13 +122,11 @@ let leint31_to_string v =
       and 'a t = 'a tree option
    ]} *)
 
-type 'a rd = < rd : unit; .. > as 'a
-type 'a wr = < wr : unit; .. > as 'a
-
-type ro = < rd : unit; >
-type wo = < wr : unit; >
-
-type rdwr = < rd : unit; wr : unit; >
+type 'a rd = < rd : unit ; .. > as 'a
+type 'a wr = < wr : unit ; .. > as 'a
+type ro = < rd : unit >
+type wo = < wr : unit >
+type rdwr = < rd : unit ; wr : unit >
 
 module rec Leaf : sig
   type t [@@immediate]
@@ -148,40 +144,34 @@ and Addr : sig
   type 'a t = private int
 
   val length : int
-
-  val null : ro t
+  val null : rdwr t
   val is_null : 'a t -> bool
-
   external of_int_to_rdonly : int -> ro t = "%identity"
   external of_int_to_wronly : int -> wo t = "%identity"
   external of_int_to_rdwr : int -> rdwr t = "%identity"
-
   external to_wronly : 'a wr t -> wo t = "%identity"
   external to_rdonly : 'a rd t -> ro t = "%identity"
-
   external unsafe_to_leaf : 'a t -> Leaf.t = "%identity"
   external unsafe_of_leaf : Leaf.t -> 'a t = "%identity"
   external unsafe_to_int : _ t -> int = "%identity"
-
+  external unsafe_to_rdwr : _ t -> rdwr t = "%identity"
   val ( + ) : 'a t -> int -> 'a t
 end = struct
   type 'a t = int
 
   let length = Sys.word_size / 8
-
   let null = 1 lsl (Sys.word_size - 2)
   let is_null x = x = null [@@inline always]
 
   external of_int_to_rdonly : int -> ro t = "%identity"
   external of_int_to_wronly : int -> wo t = "%identity"
   external of_int_to_rdwr : int -> rdwr t = "%identity"
-
   external to_wronly : 'a wr t -> wo t = "%identity"
   external to_rdonly : 'a rd t -> ro t = "%identity"
-
   external unsafe_to_leaf : 'a t -> Leaf.t = "%identity"
   external unsafe_of_leaf : Leaf.t -> 'a t = "%identity"
   external unsafe_to_int : _ t -> int = "%identity"
+  external unsafe_to_rdwr : _ t -> rdwr t = "%identity"
 
   let ( + ) addr v = addr + v [@@inline always]
 end
@@ -189,17 +179,19 @@ end
 let string_of_null_addr = leintnat_to_string (Addr.null :> int)
 
 type ('c, 'a) value =
-  | Int8     : (atomic, int) value
-  | LEInt    : (atomic, int) value
-  | LEInt16  : (atomic, int) value
-  | LEInt31  : (atomic, int) value
-  | LEInt64  : (atomic, int64) value
+  | Int8 : (atomic, int) value
+  | LEInt : (atomic, int) value
+  | LEInt16 : (atomic, int) value
+  | LEInt31 : (atomic, int) value
+  | LEInt64 : (atomic, int64) value
   | LEInt128 : (atomic, string) value
   (* XXX(dinosaure): a Int128 does not exist in OCaml, so we load it into a
        simple (little-endian) [string]. However, the access to the value must
        be atomic and be saved into a string then. *)
-  | Addr_rd  : (atomic, ro Addr.t) value
+  | Addr_rd : (atomic, ro Addr.t) value
+  | Addr_rdwr : (atomic, rdwr Addr.t) value
   | C_string : (non_atomic, string) value
+
 and atomic = Atomic
 and non_atomic = Non_atomic
 
@@ -208,21 +200,27 @@ module type S = sig
 
   val bind : 'a t -> ('a -> 'b t) -> 'b t
   val return : 'a -> 'a t
-
   val atomic_get : 'a rd Addr.t -> (atomic, 'v) value -> 'v t
   val atomic_set : 'a wr Addr.t -> (atomic, 'v) value -> 'v -> unit t
   val persist : 'a wr Addr.t -> len:int -> unit t
+  val fetch_add : rdwr Addr.t -> (atomic, int) value -> int -> int t
+  val fetch_or : rdwr Addr.t -> (atomic, int) value -> int -> int t
+  val fetch_sub : rdwr Addr.t -> (atomic, int) value -> int -> int t
 
-  val fetch_add  : rdwr Addr.t -> (atomic, int) value -> int -> int t
-  val fetch_or   : rdwr Addr.t -> (atomic, int) value -> int -> int t
-  val fetch_sub  : rdwr Addr.t -> (atomic, int) value -> int -> int t
+  val compare_exchange :
+    ?weak:bool ->
+    rdwr Addr.t ->
+    (atomic, 'a) value ->
+    'a Atomic.t ->
+    'a ->
+    bool t
 
-  val compare_exchange : ?weak:bool -> rdwr Addr.t -> (atomic, 'a) value -> 'a Atomic.t -> 'a -> bool t
   val pause_intrinsic : unit t
-
   val get : 'a rd Addr.t -> ('t, 'v) value -> 'v t
 
-  val allocate : kind:[ `Leaf | `Node ] -> ?len:int -> string list -> rdwr Addr.t t
+  val allocate :
+    kind:[ `Leaf | `Node ] -> ?len:int -> string list -> rdwr Addr.t t
+
   val delete : _ Addr.t -> int -> unit t
   val collect : _ Addr.t -> len:int -> uid:int -> unit t
 end
@@ -231,7 +229,8 @@ type 'a fmt = Format.formatter -> 'a -> unit
 
 let pf ppf fmt = Format.fprintf ppf fmt
 
-let pp_value : type c a. (c, a) value fmt = fun ppf -> function
+let pp_value : type c a. (c, a) value fmt =
+ fun ppf -> function
   | LEInt -> pf ppf "leintnat"
   | LEInt31 -> pf ppf "leint31"
   | LEInt16 -> pf ppf "leint16"
@@ -239,18 +238,20 @@ let pp_value : type c a. (c, a) value fmt = fun ppf -> function
   | LEInt128 -> pf ppf "leint128"
   | Int8 -> pf ppf "int8"
   | Addr_rd -> pf ppf "addr"
+  | Addr_rdwr -> pf ppf "addr"
   | C_string -> pf ppf "c_string"
 
-let fmt fmt = fun ppf -> pf ppf fmt
+let fmt fmt ppf = pf ppf fmt
 
 let pp_of_value : type c a. (c, a) value -> a fmt = function
-  | LEInt -> fun ppf v -> if v < 0  then pf ppf "%16x" v else pf ppf "%10d" v
+  | LEInt -> fun ppf v -> if v < 0 then pf ppf "%16x" v else pf ppf "%10d" v
   | LEInt31 -> fmt "%10d"
   | LEInt16 -> fmt "%5d"
   | LEInt64 -> fmt "%19Ld"
   | LEInt128 -> fmt "%S"
   | Int8 -> fmt "%3d"
   | Addr_rd -> fun ppf addr -> pf ppf "%016x" (addr :> int)
+  | Addr_rdwr -> fun ppf addr -> pf ppf "%016x" (addr :> int)
   | C_string -> fmt "%S"
 
 module Value = struct
@@ -261,15 +262,14 @@ module Value = struct
   let leint64 = LEInt64
   let leint128 = LEInt128
   let addr_rd = Addr_rd
+  let addr_rdwr = Addr_rdwr
   let c_string = C_string
 end
 
 let _cache_line_size = 64
 let _write_latency_in_ns = 0
 let _cpu_freq_mhz = 2100
-
-let ( <.> ) f g = fun x -> f (g x)
-
+let ( <.> ) f g x = f (g x)
 let _prefix = 4
 let _header_prefix = 0
 let _header_prefix_count = _header_prefix + _prefix
@@ -279,8 +279,10 @@ let _header_prefix_count = _header_prefix + _prefix
    [prefix] to help a pessimistic check. *)
 
 let _header_kind = _header_prefix_count + 4
+
 let _header_owner =
   if Sys.word_size = 64 then _header_kind + 8 else _header_kind + 4
+
 (* XXX(dinosaure): [owner] is a unique identifier (like a PID) to tell us which
    process requires a node to be alive. It helps us to collect and re-use nodes
    which are not needed anymore by any readers.
@@ -305,18 +307,17 @@ let _header_depth =
 
 let _header_count = _header_depth + 4
 let _header_compact_count = _header_count + 2
-
 let _header_length = _header_compact_count + 2
 
-let () = match Sys.word_size = 64 with
-  | true  -> assert (_header_length = 32)
+let () =
+  match Sys.word_size = 64 with
+  | true -> assert (_header_length = 32)
   | false -> assert (_header_length = 24)
 
 let _bits_kind = Sys.word_size - 3
-
-let _n4_kind   = 0b00
-let _n16_kind  = 0b01
-let _n48_kind  = 0b10
+let _n4_kind = 0b00
+let _n16_kind = 0b01
+let _n48_kind = 0b10
 let _n256_kind = 0b11
 
 (* XXX(dinosaure): note for me, [msync(2)] does not ensure the **order** of
@@ -350,8 +351,8 @@ module Make (S : S) = struct
 
   open S
 
-  let get_version addr =
-    atomic_get Addr.(addr + _header_kind) Value.leintnat [@@inline]
+  let get_version addr = atomic_get Addr.(addr + _header_kind) Value.leintnat
+  [@@inline]
 
   let get_type addr =
     let* value = atomic_get Addr.(addr + _header_kind) Value.leintnat in
@@ -378,30 +379,27 @@ module Make (S : S) = struct
     let p0 = Int64.(to_int (logand value 0xffffL)) in
     let p1 = Int64.(to_int (logand (shift_right value 16) 0xffffL)) in
     let prefix = Bytes.create _prefix in
-    bytes_set16 prefix 0 p0 ;
-    bytes_set16 prefix 2 p1 ;
-    return (Bytes.unsafe_to_string prefix,
-            Int64.(to_int (shift_right value 32)))
+    bytes_set16 prefix 0 p0;
+    bytes_set16 prefix 2 p1;
+    return (Bytes.unsafe_to_string prefix, Int64.(to_int (shift_right value 32)))
 
   let ( >>= ) x f = bind x f
 
   let set_prefix addr ~prefix ~prefix_count flush =
-    if prefix_count = 0
-    then atomic_set Addr.(addr + _header_prefix) Value.leint64 0L
+    if prefix_count = 0 then
+      atomic_set Addr.(addr + _header_prefix) Value.leint64 0L
     else
       let p0 = string_get16 prefix 0 in
       let p1 = string_get16 prefix 2 in
       let prefix = Int64.(logor (shift_left (of_int p1) 16) (of_int p0)) in
       let rs = Int64.(logor (shift_left (of_int prefix_count) 32) prefix) in
       atomic_set Addr.(addr + _header_prefix) Value.leint64 rs >>= fun () ->
-    if flush
-    then persist Addr.(addr + _header_prefix) ~len:8
-    else return ()
+      if flush then persist Addr.(addr + _header_prefix) ~len:8 else return ()
 
   (**** FIND CHILD ****)
 
   let _n4_align_length =
-    let len = ((_header_length + 4) + Addr.length) / Addr.length in
+    let len = (_header_length + 4 + Addr.length) / Addr.length in
     (len * Addr.length) - (_header_length + 4)
   (* XXX(dinosaure): to be sure that addresses are aligned, we fill the
    * gap between the header, 4 bytes (needed by N4) and addresses. By this
@@ -409,40 +407,54 @@ module Make (S : S) = struct
 
   let n4_find_child addr k =
     let* _0 = atomic_get Addr.(addr + _header_length + 0) Value.int8 in
-    if _0 = k
-    then atomic_get Addr.(addr + _header_length + 4 + _n4_align_length + (Addr.length * 0))
-        Value.addr_rd else
-    let* _1 = atomic_get Addr.(addr + _header_length + 1) Value.int8 in
-    if _1 = k
-    then atomic_get Addr.(addr + _header_length + 4 + _n4_align_length + (Addr.length * 1))
-        Value.addr_rd else
-    let* _2 = atomic_get Addr.(addr + _header_length + 2) Value.int8 in
-    if _2 = k
-    then atomic_get Addr.(addr + _header_length + 4 + _n4_align_length + (Addr.length * 2))
-        Value.addr_rd else
-    let* _3 = atomic_get Addr.(addr + _header_length + 3) Value.int8 in
-    if _3 = k
-    then atomic_get Addr.(addr + _header_length + 4 + _n4_align_length + (Addr.length * 3))
-        Value.addr_rd else
-      ( Log.debug (fun m -> m "No child for %02x into N4" k)
-      ; return Addr.null )
+    if _0 = k then
+      atomic_get
+        Addr.(addr + _header_length + 4 + _n4_align_length + (Addr.length * 0))
+        Value.addr_rd
+    else
+      let* _1 = atomic_get Addr.(addr + _header_length + 1) Value.int8 in
+      if _1 = k then
+        atomic_get
+          Addr.(
+            addr + _header_length + 4 + _n4_align_length + (Addr.length * 1))
+          Value.addr_rd
+      else
+        let* _2 = atomic_get Addr.(addr + _header_length + 2) Value.int8 in
+        if _2 = k then
+          atomic_get
+            Addr.(
+              addr + _header_length + 4 + _n4_align_length + (Addr.length * 2))
+            Value.addr_rd
+        else
+          let* _3 = atomic_get Addr.(addr + _header_length + 3) Value.int8 in
+          if _3 = k then
+            atomic_get
+              Addr.(
+                addr + _header_length + 4 + _n4_align_length + (Addr.length * 3))
+              Value.addr_rd
+          else (
+            Log.debug (fun m -> m "no child for %02x into node4" k);
+            return Addr.(to_rdonly null))
 
   external n16_get_child : int -> int -> string -> int = "caml_n16_get_child"
-    [@@noalloc]
+  [@@noalloc]
+
   external ctz : int -> int = "caml_ctz" [@@noalloc]
 
   (* XXX(dinosaure): despite [art.ml], [N4] and [N16] aren't order.
      We must check all children. *)
 
   let rec _n16_find_child addr k bitfield =
-    if bitfield = 0 then return Addr.null
+    if bitfield = 0 then return Addr.(to_rdonly null)
     else
       let p = ctz bitfield in
       let* k' = atomic_get Addr.(addr + _header_length + p) Value.int8 in
-      let* value = atomic_get
-          Addr.(addr + _header_length + 16 + (p * Addr.length)) Value.addr_rd in
-      if not (Addr.is_null value) && k' = (k lxor 128)
-      then return value
+      let* value =
+        atomic_get
+          Addr.(addr + _header_length + 16 + (p * Addr.length))
+          Value.addr_rd
+      in
+      if (not (Addr.is_null value)) && k' = k lxor 128 then return value
       else _n16_find_child addr k (bitfield lxor (1 lsl p))
 
   let n16_find_child addr k =
@@ -454,10 +466,11 @@ module Make (S : S) = struct
 
   let n48_find_child addr k =
     let* pos' = atomic_get Addr.(addr + _header_length + k) Value.int8 in
-    if pos' <> 48
-    then atomic_get Addr.(addr + _header_length + 256 + (Addr.length * pos'))
+    if pos' <> 48 then
+      atomic_get
+        Addr.(addr + _header_length + 256 + (Addr.length * pos'))
         Value.addr_rd
-    else return Addr.null
+    else return Addr.(to_rdonly null)
 
   let n256_find_child addr k =
     atomic_get Addr.(addr + _header_length + (Addr.length * k)) Value.addr_rd
@@ -473,37 +486,48 @@ module Make (S : S) = struct
   let rec _node_any_child addr ~header child idx max =
     if idx = max then return child
     else
-      let* child' : ro Addr.t = atomic_get
+      let* (child' : ro Addr.t) =
+        atomic_get
           Addr.(addr + _header_length + header + (idx * Addr.length))
-          Value.addr_rd in
+          Value.addr_rd
+      in
       if (child' :> int) land 1 = 1 then return child'
-      else _node_any_child addr ~header (if not (Addr.is_null child')
-                                         then child'
-                                         else child)
+      else
+        _node_any_child addr ~header
+          (if not (Addr.is_null child') then child' else child)
           (succ idx) max
   [@@inline]
 
-  let n4_any_child addr   = _node_any_child addr ~header:(4 + _n4_align_length) Addr.null 0 4
-  let n16_any_child addr  = _node_any_child addr ~header:16  Addr.null 0 16
-  let n48_any_child addr  = _node_any_child addr ~header:256 Addr.null 0 48
-  let n256_any_child addr = _node_any_child addr ~header:0   Addr.null 0 256
+  let n4_any_child addr =
+    _node_any_child addr ~header:(4 + _n4_align_length)
+      Addr.(to_rdonly null)
+      0 4
+
+  let n16_any_child addr =
+    _node_any_child addr ~header:16 Addr.(to_rdonly null) 0 16
+
+  let n48_any_child addr =
+    _node_any_child addr ~header:256 Addr.(to_rdonly null) 0 48
+
+  let n256_any_child addr =
+    _node_any_child addr ~header:0 Addr.(to_rdonly null) 0 256
 
   (* XXX(dinosaure): thx @Drup. *)
-  type formatter =
-    { commit : unit -> unit S.t
-    ; ppf : Format.formatter }
+  type formatter = { commit : unit -> unit S.t; ppf : Format.formatter }
 
-  let formatter ~commit ppf = { commit; ppf; }
+  let formatter ~commit ppf = { commit; ppf }
 
-  let kfprintf
-    : (formatter -> unit S.t -> 'a) -> formatter ->
-      ('b, Format.formatter, unit, 'a) format4 -> 'b
-    = fun k ppft fmt -> Format.kfprintf (fun _ppf -> k ppft @@ ppft.commit ())
-        ppft.ppf fmt
+  let kfprintf :
+      (formatter -> unit S.t -> 'a) ->
+      formatter ->
+      ('b, Format.formatter, unit, 'a) format4 ->
+      'b =
+   fun k ppft fmt ->
+    Format.kfprintf (fun _ppf -> k ppft @@ ppft.commit ()) ppft.ppf fmt
 
-  let fprintf
-    : formatter -> ('a, Format.formatter, unit, unit S.t) format4 -> 'a
-    = fun ppft fmt -> kfprintf (fun _ t -> t) ppft fmt
+  let fprintf :
+      formatter -> ('a, Format.formatter, unit, unit S.t) format4 -> 'a =
+   fun ppft fmt -> kfprintf (fun _ t -> t) ppft fmt
 
   let[@coverage off] pp_char ppf = function
     | '\x21' .. '\x7e' as chr -> Fmt.char ppf chr
@@ -525,8 +549,11 @@ module Make (S : S) = struct
   let pp_n48 ppf addr =
     let rec go arr i =
       if i = 48 then return arr
-      else let* chr = atomic_get Addr.(addr + _header_length + i) Value.int8 in
-        ( arr.(i) <- Char.unsafe_chr chr ; go arr (succ i) ) in
+      else
+        let* chr = atomic_get Addr.(addr + _header_length + i) Value.int8 in
+        arr.(i) <- Char.unsafe_chr chr;
+        go arr (succ i)
+    in
     let* arr = go (Array.make 48 '\000') 0 in
     fprintf ppf "%a" Fmt.(Dump.array pp_char) arr
 
@@ -553,29 +580,34 @@ module Make (S : S) = struct
   let pp_record ppf addr =
     let* prefix, prefix_count = get_prefix addr in
     let* depth = get Addr.(addr + _header_depth) Value.leint31 in
-    let* () = fprintf ppf
-        "{ @[<hov>prefix= %S;@ prefix_count= %d;@ depth= %d;@ kind= "
-        prefix prefix_count depth in
+    let* () =
+      fprintf ppf "{ @[<hov>prefix= %S;@ prefix_count= %d;@ depth= %d;@ kind= "
+        prefix prefix_count depth
+    in
     let* () = pp_kind ppf addr in
     let* () = fprintf ppf ";@] }" in
     return ()
 
   let rec pp_children ~header ~n:max ppf addr =
     let rec go ~header idx arr =
-      if idx < max
-      then
-        let addr = Addr.(addr + _header_length + header + (idx * Addr.length)) in
+      if idx < max then (
+        let addr =
+          Addr.(addr + _header_length + header + (idx * Addr.length))
+        in
         let* addr = atomic_get addr Value.addr_rd in
-        ( arr.(idx) <- addr ; go ~header (succ idx) arr )
-      else return arr in
-    let* arr = go ~header 0 (Array.init max (fun _ -> Addr.null)) in
+        arr.(idx) <- addr;
+        go ~header (succ idx) arr)
+      else return arr
+    in
+    let* arr = go ~header 0 (Array.init max (fun _ -> Addr.(to_rdonly null))) in
     let rec pp ppf = function
       | [] -> return ()
       | [ x ] -> pp_elt ppf x
       | x :: r ->
-        let* () = pp_elt ppf x in
-        let* () = fprintf ppf ";@ " in
-        pp ppf r in
+          let* () = pp_elt ppf x in
+          let* () = fprintf ppf ";@ " in
+          pp ppf r
+    in
     let* () = fprintf ppf "[|@[<hov>" in
     let* () = pp ppf (Array.to_list arr) in
     let* () = fprintf ppf "@]|]" in
@@ -583,8 +615,7 @@ module Make (S : S) = struct
 
   and pp_elt ppf (addr : ro Addr.t) =
     if Addr.is_null addr then fprintf ppf "<null>"
-    else if (addr :> int) land 1 = 1
-    then
+    else if (addr :> int) land 1 = 1 then
       let leaf = Leaf.prj (Addr.unsafe_to_leaf addr) in
       let* key = get leaf Value.c_string in
       let len = (String.length key + size_of_word) / size_of_word in
@@ -593,9 +624,13 @@ module Make (S : S) = struct
       let* value = get Addr.(leaf + len) Value.leintnat in
       fprintf ppf "{:leaf @[<hov>key= %S;@ value= %d;@] }" key value
     else
-      let* n, header = get_type addr >>| function
-        | 0 -> 4, 4 + _n4_align_length
-        | 1 -> 16, 16 | 2 -> 48, 256 | _ -> 256, 0 in
+      let* n, header =
+        get_type addr >>| function
+        | 0 -> (4, 4 + _n4_align_length)
+        | 1 -> (16, 16)
+        | 2 -> (48, 256)
+        | _ -> (256, 0)
+      in
       let* () = fprintf ppf "{:node @[<hov>hdr= @[<hov>" in
       let* () = pp_record ppf addr in
       let* () = fprintf ppf "@];@ key= @[<hov>" in
@@ -605,8 +640,7 @@ module Make (S : S) = struct
       let* () = fprintf ppf "@];@] }" in
       return ()
 
-  let pp ppf (root : _ rd Addr.t) =
-    pp_elt ppf (Addr.to_rdonly root)
+  let pp ppf (root : _ rd Addr.t) = pp_elt ppf (Addr.to_rdonly root)
 
   let any_child (addr : _ rd Addr.t) =
     let* ty = get_type addr in
@@ -617,38 +651,38 @@ module Make (S : S) = struct
     | 3 -> n256_any_child addr
     | _ -> assert false
 
-  let rec minimum
-    : ro Addr.t -> ro Addr.t t
-    = fun addr ->
+  let rec minimum : ro Addr.t -> ro Addr.t t =
+   fun addr ->
     if (addr :> int) land 1 = 1 then return addr
-    else let* addr = any_child addr in minimum addr
+    else
+      let* addr = any_child addr in
+      minimum addr
 
-  let minimum (addr : _ rd Addr.t) = minimum (Addr.to_rdonly addr)
-  [@@inline]
+  let minimum (addr : _ rd Addr.t) = minimum (Addr.to_rdonly addr) [@@inline]
+
+  let pp_type_of_int ppf = function
+    | 0 -> Fmt.string ppf "node4"
+    | 1 -> Fmt.string ppf "node16"
+    | 2 -> Fmt.string ppf "node48"
+    | 3 -> Fmt.string ppf "node256"
+    | _ -> assert false
 
   let find_child (addr : _ rd Addr.t) chr =
     let k = Char.code chr in
     let* ty = get_type addr in
-    Log.debug (fun m -> m "find_child node %c" chr) ;
+    Log.debug (fun m ->
+        m "find child with %02x byte (%a)" (Char.code chr) pp_type_of_int ty);
     match ty with
-    | 0 -> n4_find_child   addr k
-    | 1 ->
-       Log.debug (fun m -> m "find_child_n16 node %c" chr) ;
-       n16_find_child  addr k
-    | 2 ->
-       Log.debug (fun m -> m "find_child_n48 node %c" chr) ;
-       n48_find_child  addr k
-    | 3 ->
-       Log.debug (fun m -> m "find_child_n256 node %c" chr) ;
-       n256_find_child addr k
+    | 0 -> n4_find_child addr k
+    | 1 -> n16_find_child addr k
+    | 2 -> n48_find_child addr k
+    | 3 -> n256_find_child addr k
     | _ -> assert false
 
   let rec _check_prefix ~key ~key_len ~prefix ~level idx max =
-    if idx < max
-    then ( if prefix.[idx] <> key.[level + idx]
-           then raise Not_found
-           else _check_prefix ~key ~key_len ~prefix ~level (succ idx) max )
-  ;;
+    if idx < max then
+      if prefix.[idx] <> key.[level + idx] then raise Not_found
+      else _check_prefix ~key ~key_len ~prefix ~level (succ idx) max
 
   (* XXX(dinosaure):
 
@@ -662,45 +696,42 @@ module Make (S : S) = struct
 
   let check_prefix (addr : _ rd Addr.t) ~key ~key_len level =
     let* depth = get Addr.(addr + _header_depth) Value.leint31 in
-    if key_len < depth
-    then raise Not_found (* XXX(dinosaure): we miss something! *)
+    if key_len < depth then
+      raise Not_found (* XXX(dinosaure): we miss something! *)
     else
       let* prefix, prefix_count = get_prefix addr in
-      if prefix_count + level < depth
-      then return (depth - level) (* XXX(dinosaure): optimistic match *)
-      else if prefix_count > 0
-      then
+      if prefix_count + level < depth then return (depth - level)
+        (* XXX(dinosaure): optimistic match *)
+      else if prefix_count > 0 then (
         (* XXX(dinosaure): this case appears when [prefix_count > 0]
            and [prefix_count + level < depth]. This case is possible
            because [depth = length(prefix) = min prefix_count _prefix]!
 
            That means that [depth] does not include all of the [prefix_count]
            but only a part of it (only what we can save into [prefix]). *)
-        let idx = (level + prefix_count) - depth
+        let idx = level + prefix_count - depth
         and max = min prefix_count _prefix in
-        _check_prefix ~key ~key_len ~prefix ~level idx max ;
+        _check_prefix ~key ~key_len ~prefix ~level idx max;
 
-        if prefix_count > _prefix
-        then return (max + (prefix_count - _prefix))
-        (* XXX(dinosaure): optimistic match *)
-        else return (- max) (* prefix_count <= _prefix + level >= depth *)
+        if prefix_count > _prefix then return (max + (prefix_count - _prefix))
+          (* XXX(dinosaure): optimistic match *)
+        else return (-max) (* prefix_count <= _prefix + level >= depth *))
       else return 0 (* prefix_count:0 + level >= depth *)
 
   let memcmp a b =
-    if String.length a <> String.length b then raise Not_found ;
+    if String.length a <> String.length b then raise Not_found;
     let len = String.length a in
     let len0 = len land 3 in
     let len1 = len asr 2 in
     for i = 0 to len1 - 1 do
       let i = i * 4 in
-      if String.unsafe_get_uint32 a i <> String.unsafe_get_uint32 b i
-      then raise Not_found;
-    done ;
+      if String.unsafe_get_uint32 a i <> String.unsafe_get_uint32 b i then
+        raise Not_found
+    done;
     for i = 0 to len0 - 1 do
       let i = (len1 * 4) + i in
-      if a.[i] <> b.[i] then raise Not_found ;
+      if a.[i] <> b.[i] then raise Not_found
     done
-  ;;
 
   (* XXX(dinosaure):
 
@@ -711,9 +742,11 @@ module Make (S : S) = struct
   type pessimistic =
     | Match of { level : int }
     | Skipped_level
-    | No_match of { non_matching_key : char
-                  ; non_matching_prefix : string
-                  ; level : int }
+    | No_match of {
+        non_matching_key : char;
+        non_matching_prefix : string;
+        level : int;
+      }
 
   (* XXX(dinosaure): [level] keeps 2 int31 values. It is initialised with:
      [level = (level lsl 31) lor level]. When we [succ level], we update only
@@ -722,99 +755,94 @@ module Make (S : S) = struct
 
      /!\ Overflow is possible... *)
 
-  let rec _check_prefix_pessimistic
-      ~key ~minimum ~prefix ~prefix_count ~level idx max =
-    Log.debug (fun m -> m "check_prefix_pessimistic idx:%d, max:%d" idx max) ;
-    if idx = max then return (Match { level= level land 0x7fffffff })
+  let rec _check_prefix_pessimistic ~key ~minimum ~prefix ~prefix_count ~level
+      idx max =
+    if idx = max then return (Match { level = level land 0x7fffffff })
     else
       let* chr =
         (* XXX(dinosaure): note that a minimum, a leaf is, in ANYWAY,
            a constant value. It's why we can keep it as a [addr Lazy.t]
            without any trouble. *)
-        if idx >= _prefix
-        then Lazy.force minimum >>| fun key' ->
-          Log.debug (fun m -> m "Get the byte %d from the minimum %S." (level land 0x7fffffff) key') ;
-          key'.![level land 0x7fffffff]
-        else return prefix.[idx] in
-      Log.debug (fun m -> m "(prefix | minimum(node).key)[%d]:%02x <> key.[%d]:%02x" idx (Char.code chr) (level land 0x7fffffff)
-        (Char.code key.![level land 0x7fffffff])) ;
-      if chr <> key.![level land 0x7fffffff]
-      then
+        if idx >= _prefix then
+          Lazy.force minimum >>| fun key' -> key'.![level land 0x7fffffff]
+        else return prefix.[idx]
+      in
+      if chr <> key.![level land 0x7fffffff] then
         let non_matching_key = chr in
         let* non_matching_prefix =
-          if prefix_count > _prefix
-          then
+          if prefix_count > _prefix then (
             let res = Bytes.make _prefix '\000' in
             let* key = Lazy.force minimum in
-            let len = min
+            let len =
+              min
                 (prefix_count - ((level land 0x7fffffff) - (level lsr 31)) - 1)
-                _prefix in
-            Log.debug (fun m -> m "len:%d > 0 then blit %S %d bytes 0 %d" len key ((level land 0x7fffffff) + 1) len) ;
-            if len > 0
-            then Bytes.blit_string key ((level land 0x7fffffff) + 1) res 0 len ;
-            return (Bytes.unsafe_to_string res)
+                _prefix
+            in
+            if len > 0 then
+              Bytes.blit_string key ((level land 0x7fffffff) + 1) res 0 len;
+            return (Bytes.unsafe_to_string res))
           else
             let res = Bytes.make _prefix '\000' in
-            Log.debug (fun m -> m "blit %S (idx:%d + 1) res 0 (prefix_count:%d - idx:%d - 1)" prefix idx prefix_count idx) ;
-            if prefix_count - idx - 1 > 0
-            then Bytes.blit_string prefix (idx + 1) res 0
-                (prefix_count - idx - 1) ;
-            return (Bytes.unsafe_to_string res) in
-        return (No_match { non_matching_key
-                         ; non_matching_prefix
-                         ; level= level land 0x7fffffff })
-      else _check_prefix_pessimistic
-          ~key ~minimum ~prefix ~prefix_count ~level:(succ level) (succ idx) max
+            if prefix_count - idx - 1 > 0 then
+              Bytes.blit_string prefix (idx + 1) res 0 (prefix_count - idx - 1);
+            return (Bytes.unsafe_to_string res)
+        in
+        return
+          (No_match
+             {
+               non_matching_key;
+               non_matching_prefix;
+               level = level land 0x7fffffff;
+             })
+      else
+        _check_prefix_pessimistic ~key ~minimum ~prefix ~prefix_count
+          ~level:(succ level) (succ idx) max
 
   let check_prefix_pessimistic (addr : _ rd Addr.t) ~key level =
     let* prefix, prefix_count = get_prefix addr in
-    Log.debug (fun m -> m "prefix: %S, prefix-count: %d." prefix prefix_count) ;
     let* depth = get Addr.(addr + _header_depth) Value.leint31 in
-    if prefix_count + level < depth
-    then return Skipped_level
-    else if prefix_count > 0
-    then
-      let idx = (level + prefix_count) - depth in
+    if prefix_count + level < depth then return Skipped_level
+    else if prefix_count > 0 then
+      let idx = level + prefix_count - depth in
       let max = prefix_count in
-      let minimum = Lazy.from_fun @@ fun () ->
+      let minimum =
+        Lazy.from_fun @@ fun () ->
         let* leaf = minimum addr in
-        get (Leaf.prj (Addr.unsafe_to_leaf leaf)) Value.c_string in
-      _check_prefix_pessimistic ~key ~minimum
-        ~prefix ~prefix_count
-        ~level:((level lsl 31) lor level) idx max
+        get (Leaf.prj (Addr.unsafe_to_leaf leaf)) Value.c_string
+      in
+      _check_prefix_pessimistic ~key ~minimum ~prefix ~prefix_count
+        ~level:((level lsl 31) lor level)
+        idx max
     else return (Match { level })
-        (* XXX(dinosaure): even if [level] still is the same,
-           it seems that [_check_prefix_pessimistic] can return with
-           an other [level] value. *)
+  (* XXX(dinosaure): even if [level] still is the same,
+     it seems that [_check_prefix_pessimistic] can return with
+     an other [level] value. *)
 
-  let rec _lookup
-      (node : _ rd Addr.t) ~key ~key_len ~optimistic_match level =
+  let rec _lookup (node : _ rd Addr.t) ~key ~key_len ~optimistic_match level =
     let* res = check_prefix node ~key ~key_len level in
     let optimistic_match = if res > 0 then true else optimistic_match in
-    let level = level + (abs res) in
-    if key_len < level then raise Not_found ;
+    let level = level + abs res in
+    if key_len < level then raise Not_found;
     let* node = find_child node key.![level] in
-    if Addr.is_null node then raise Not_found ;
-    if (node :> int) land 1 = 1 (* XXX(dinosaure): it is a leaf. *)
-    then ( let leaf = Leaf.prj (Addr.unsafe_to_leaf node) in
-           if level < key_len - 1 || optimistic_match
-           then
-             let* key' = get leaf Value.c_string in
-             memcmp key key' ;
-             let len = (String.length key + size_of_word) / size_of_word in
-             (* padding *)
-             let len = len * size_of_word in
-             get Addr.(leaf + len) Value.leintnat
-           else
-             let len = (String.length key + size_of_word) / size_of_word in
-             (* padding *)
-             let len = len * size_of_word in
-             get Addr.(leaf + len) Value.leintnat )
+    if Addr.is_null node then raise Not_found;
+    if (node :> int) land 1 = 1 (* XXX(dinosaure): it is a leaf. *) then
+      let leaf = Leaf.prj (Addr.unsafe_to_leaf node) in
+      if level < key_len - 1 || optimistic_match then (
+        let* key' = get leaf Value.c_string in
+        memcmp key key';
+        let len = (String.length key + size_of_word) / size_of_word in
+        (* padding *)
+        let len = len * size_of_word in
+        get Addr.(leaf + len) Value.leintnat)
+      else
+        let len = (String.length key + size_of_word) / size_of_word in
+        (* padding *)
+        let len = len * size_of_word in
+        get Addr.(leaf + len) Value.leintnat
     else _lookup node ~key ~key_len ~optimistic_match (succ level)
 
-  let lookup
-    : _ rd Addr.t -> key:string -> key_len:int -> int t
-    = fun (node : _ rd Addr.t) ~key ~key_len ->
+  let lookup : _ rd Addr.t -> key:string -> key_len:int -> int t =
+   fun (node : _ rd Addr.t) ~key ~key_len ->
     let node = Addr.unsafe_to_int node in
     let node = Addr.of_int_to_rdonly node in
     _lookup node ~key ~key_len ~optimistic_match:false 0
@@ -829,9 +857,9 @@ module Make (S : S) = struct
   type zero = Z
 
   type 'a node =
-    | N4   : rdwr Addr.t -> zero node
-    | N16  : rdwr Addr.t -> zero succ node
-    | N48  : rdwr Addr.t -> zero succ succ node
+    | N4 : rdwr Addr.t -> zero node
+    | N16 : rdwr Addr.t -> zero succ node
+    | N48 : rdwr Addr.t -> zero succ succ node
     | N256 : rdwr Addr.t -> zero succ succ succ node
 
   [@@@warning "+37"]
@@ -852,118 +880,136 @@ module Make (S : S) = struct
      and [movnt64] to ensure a synchro between readers and writers. *)
 
   let add_child_n256 (N256 addr) k (value : ro Addr.t) flush =
-    if flush
-    then
-      let* () = atomic_set
+    if flush then
+      let* () =
+        atomic_set
           Addr.(to_wronly (addr + _header_length + (k * Addr.length)))
-          Value.addr_rd value in
-      let* () = persist Addr.(to_wronly (addr + _header_length + (k * Addr.length))) ~len:8 in
-      let* _  = fetch_add
-          Addr.(addr + _header_count)
-          Value.leint16 1 in
+          Value.addr_rd value
+      in
+      let* () =
+        persist
+          Addr.(to_wronly (addr + _header_length + (k * Addr.length)))
+          ~len:8
+      in
+      let* _ = fetch_add Addr.(addr + _header_count) Value.leint16 1 in
       return true
     else
-      let* () = atomic_set
+      let* () =
+        atomic_set
           Addr.(addr + _header_length + (k * Addr.length))
-          Value.addr_rd value in
-      let* _  = fetch_add
-          Addr.(addr + _header_count)
-          Value.leint16 1 in
+          Value.addr_rd value
+      in
+      let* _ = fetch_add Addr.(addr + _header_count) Value.leint16 1 in
       return true
 
   (* TODO(dinosaure): [P-ART] is different from [ROWEX]. *)
+  (* TODO(dinosaure): use [persist]? *)
   let add_child_n48 (N48 addr) k value _flush =
     let* compact_count =
-      atomic_get Addr.(addr + _header_compact_count) Value.leint16 in
-    if compact_count = 48
-    then return false
+      atomic_get Addr.(addr + _header_compact_count) Value.leint16
+    in
+    if compact_count = 48 then return false
     else
-      let* () = atomic_set
+      let* () =
+        atomic_set
           Addr.(addr + _header_length + 256 + (compact_count * Addr.length))
-          Value.addr_rd value in
-      let* () = atomic_set
-          Addr.(addr + _header_length + k)
-          Value.int8 compact_count in
-      let* _  = fetch_add
-          Addr.(addr + _header_compact_count)
-          Value.leint16 1 in
-      let* _  = fetch_add
-          Addr.(addr + _header_count)
-          Value.leint16 1 in
+          Value.addr_rd value
+      in
+      let* () =
+        atomic_set Addr.(addr + _header_length + k) Value.int8 compact_count
+      in
+      let* _ = fetch_add Addr.(addr + _header_compact_count) Value.leint16 1 in
+      let* _ = fetch_add Addr.(addr + _header_count) Value.leint16 1 in
       return true
 
   let add_child_n16 (N16 addr) k (value : ro Addr.t) flush =
     let* compact_count =
-      atomic_get Addr.(addr + _header_compact_count) Value.leint16 in
-    if compact_count = 16
-    then return false
+      atomic_get Addr.(addr + _header_compact_count) Value.leint16
+    in
+    if compact_count = 16 then return false
     else
-      let* _next_index = fetch_add
-          Addr.(addr + _header_compact_count)
-          Value.leint16 1 in
-      let* _          = fetch_add
-          Addr.(addr + _header_count)
-          Value.leint16 1 in
-      if flush
-      then
-        let* () = atomic_set
+      let* _next_index =
+        fetch_add Addr.(addr + _header_compact_count) Value.leint16 1
+      in
+      let* _ = fetch_add Addr.(addr + _header_count) Value.leint16 1 in
+      if flush then
+        let* () =
+          atomic_set
             Addr.(addr + _header_length + compact_count)
-            Value.int8 (k lxor 128) in
+            Value.int8 (k lxor 128)
+        in
         let* () = persist addr ~len:8 in
-        let* () = atomic_set
-            Addr.(to_wronly
-                    (addr + _header_length + 16
-                     + (compact_count * Addr.length)))
-            Value.addr_rd value in
-        let* () = persist
-            Addr.(to_wronly
-                    (addr + _header_length + 16
-                     + (compact_count * Addr.length)))
-            ~len:Addr.length in
+        let* () =
+          atomic_set
+            Addr.(
+              to_wronly
+                (addr + _header_length + 16 + (compact_count * Addr.length)))
+            Value.addr_rd value
+        in
+        let* () =
+          persist
+            Addr.(
+              to_wronly
+                (addr + _header_length + 16 + (compact_count * Addr.length)))
+            ~len:Addr.length
+        in
         return true
       else
-        let* () = atomic_set
+        let* () =
+          atomic_set
             Addr.(addr + _header_length + compact_count)
-            Value.int8 (k lxor 128) in
-        let* () = atomic_set
+            Value.int8 (k lxor 128)
+        in
+        let* () =
+          atomic_set
             Addr.(addr + _header_length + 16 + (compact_count * Addr.length))
-            Value.addr_rd value in
+            Value.addr_rd value
+        in
         return true
 
   let add_child_n4 (N4 addr) k (value : ro Addr.t) flush =
     let* compact_count =
-      atomic_get Addr.(addr + _header_compact_count) Value.leint16 in
-    if compact_count = 4
-    then return false
+      atomic_get Addr.(addr + _header_compact_count) Value.leint16
+    in
+    if compact_count = 4 then return false
     else
-      let* _next_index = fetch_add
-          Addr.(addr + _header_compact_count)
-          Value.leint16 1 in
-      let* _          = fetch_add
-          Addr.(addr + _header_count)
-          Value.leint16 1 in
-      if flush
-      then
-        let* () = atomic_set
-            Addr.(addr + _header_length + compact_count)
-            Value.int8 k in
+      let* _next_index =
+        fetch_add Addr.(addr + _header_compact_count) Value.leint16 1
+      in
+      let* _ = fetch_add Addr.(addr + _header_count) Value.leint16 1 in
+      if flush then
+        let* () =
+          atomic_set Addr.(addr + _header_length + compact_count) Value.int8 k
+        in
         let* () = persist addr ~len:_sizeof_n4 in
-        let* () = atomic_set
-            Addr.(to_wronly (addr + _header_length + 4 + _n4_align_length
-                             + (compact_count * Addr.length)))
-            Value.addr_rd value in
-        let* () = persist
-            Addr.(to_wronly (addr + _header_length + 4 + _n4_align_length
-                             + (compact_count * Addr.length)))
-            ~len:Addr.length in
+        let* () =
+          atomic_set
+            Addr.(
+              to_wronly
+                (addr + _header_length + 4 + _n4_align_length
+                + (compact_count * Addr.length)))
+            Value.addr_rd value
+        in
+        let* () =
+          persist
+            Addr.(
+              to_wronly
+                (addr + _header_length + 4 + _n4_align_length
+                + (compact_count * Addr.length)))
+            ~len:Addr.length
+        in
         return true
       else
-        let* () = atomic_set
-            Addr.(addr + _header_length + compact_count)
-            Value.int8 k in
-        let* () = atomic_set
-            Addr.(addr + _header_length + 4 + _n4_align_length + (compact_count * Addr.length))
-            Value.addr_rd value in
+        let* () =
+          atomic_set Addr.(addr + _header_length + compact_count) Value.int8 k
+        in
+        let* () =
+          atomic_set
+            Addr.(
+              addr + _header_length + 4 + _n4_align_length
+              + (compact_count * Addr.length))
+            Value.addr_rd value
+        in
         return true
 
   let write_unlock addr =
@@ -974,7 +1020,7 @@ module Make (S : S) = struct
     let* _ = fetch_add Addr.(addr + _header_kind) Value.leintnat 0b11 in
     return ()
 
-  let is_obsolete version = (version land 1 = 1)
+  let is_obsolete version = version land 1 = 1
 
   let _read_unlock_or_restart addr expected =
     let* value = atomic_get Addr.(addr + _header_kind) Value.leintnat in
@@ -984,8 +1030,7 @@ module Make (S : S) = struct
   (* XXX(dinosaure): spin-lock *)
 
   let rec until_is_locked addr version =
-    if version land 0b10 = 0b10
-    then
+    if version land 0b10 = 0b10 then
       let* () = pause_intrinsic in
       let* version = atomic_get Addr.(addr + _header_kind) Value.leintnat in
       until_is_locked addr version
@@ -995,22 +1040,35 @@ module Make (S : S) = struct
   let rec write_lock_or_restart addr need_to_restart =
     let* version = atomic_get Addr.(addr + _header_kind) Value.leintnat in
     let* version = until_is_locked addr version in
-    if is_obsolete version
-    then ( need_to_restart := true ; return () )
+    if is_obsolete version then (
+      need_to_restart := true;
+      return ())
     else
-      let* res = compare_exchange ~weak:true Addr.(addr + _header_kind)
-          Value.leintnat (Atomic.make version) (version + 0b10) in
+      let* res =
+        compare_exchange ~weak:true
+          Addr.(addr + _header_kind)
+          Value.leintnat (Atomic.make version) (version + 0b10)
+      in
       if not res then write_lock_or_restart addr need_to_restart else return ()
   [@@inline]
 
+  let write_unlock_obsolete addr =
+    fetch_add Addr.(addr + _header_kind) Value.leintnat 0b11
+
   let lock_version_or_restart addr version need_to_restart =
-    if (version land 0b10 = 0b10)|| (version land 1 = 1)
-    then ( need_to_restart := true ; return version)
+    if version land 0b10 = 0b10 || version land 1 = 1 then (
+      need_to_restart := true;
+      return version)
     else
-      let* set = compare_exchange Addr.(addr + _header_kind)
-          Value.leintnat (Atomic.make version) (version + 0b10) in
+      let* set =
+        compare_exchange
+          Addr.(addr + _header_kind)
+          Value.leintnat (Atomic.make version) (version + 0b10)
+      in
       if set then return (version + 0b10)
-      else ( need_to_restart := true ; return version )
+      else (
+        need_to_restart := true;
+        return version)
 
   (***** CHANGE/UPDATE CHILD *****)
 
@@ -1021,58 +1079,72 @@ module Make (S : S) = struct
 
      Should we protect [addr] with typed constructor? *)
 
-  let rec _n4_update_child addr k ptr i =
-    let* compact_count = atomic_get Addr.(addr + _header_compact_count)
-        Value.leint16 in
-    if i < compact_count
-    then
+  let rec _n4_update_child (addr : 'a wr Addr.t) k ptr i =
+    let* compact_count =
+      atomic_get Addr.(addr + _header_compact_count) Value.leint16
+    in
+    if i < compact_count then
       let* key = atomic_get Addr.(addr + _header_length + i) Value.int8 in
-      let* child = atomic_get
-          Addr.(addr + _header_length + 4 + _n4_align_length + (i * Addr.length)) Value.addr_rd in
-      if not (Addr.is_null child) && key = k
-      then atomic_set Addr.(addr + _header_length + 4 + _n4_align_length + (i * Addr.length))
+      let* child =
+        atomic_get
+          Addr.(
+            addr + _header_length + 4 + _n4_align_length + (i * Addr.length))
+          Value.addr_rd
+      in
+      if (not (Addr.is_null child)) && key = k then
+        atomic_set
+          Addr.(
+            addr + _header_length + 4 + _n4_align_length + (i * Addr.length))
           Value.addr_rd ptr
       else _n4_update_child addr k ptr (succ i)
     else assert false (* XXX(dinosaure): impossible or integrity problem! *)
 
   let n4_update_child addr k ptr = _n4_update_child addr k ptr 0
 
-  let rec _n16_child_pos addr k bitfield =
+  let rec _n16_child_pos addr k bitfield : rdwr Addr.t t =
     if bitfield = 0 then assert false
     else
       let p = ctz bitfield in
       let* k' = atomic_get Addr.(addr + _header_length + p) Value.int8 in
-      let* value = atomic_get
-          Addr.(addr + _header_length + 16 + (p * Addr.length)) Value.addr_rd in
-      if not (Addr.is_null value) && k' = (k lxor 128)
-      then return Addr.(to_rdonly
-                          (addr + _header_length + 16 + (p * Addr.length)))
+      let* value =
+        atomic_get
+          Addr.(addr + _header_length + 16 + (p * Addr.length))
+          Value.addr_rd
+      in
+      if (not (Addr.is_null value)) && k' = k lxor 128 then
+        return Addr.(addr + _header_length + 16 + (p * Addr.length))
       else _n16_child_pos addr k (bitfield lxor (1 lsl p))
 
   let _n16_child_pos addr k =
     let* compact_count =
-      atomic_get Addr.(addr + _header_compact_count) Value.leint16 in
+      atomic_get Addr.(addr + _header_compact_count) Value.leint16
+    in
     let* keys = atomic_get Addr.(addr + _header_length) Value.leint128 in
     let bitfield = n16_get_child compact_count k keys in
     _n16_child_pos addr k bitfield
 
   let n16_update_child addr k ptr =
     let* addr = _n16_child_pos addr k in
-    let addr = Addr.of_int_to_wronly (addr :> int) in (* XXX(dinosaure): unsafe! *)
+    let addr = Addr.of_int_to_wronly (addr :> int) in
+    (* XXX(dinosaure): unsafe! *)
     atomic_set addr Value.addr_rd ptr
 
   let n48_update_child addr k ptr =
     let* idx = atomic_get Addr.(addr + _header_length + k) Value.int8 in
     atomic_set
-      Addr.(addr + _header_length + 256 + (idx * Addr.length)) Value.addr_rd ptr
+      Addr.(addr + _header_length + 256 + (idx * Addr.length))
+      Value.addr_rd ptr
 
   let n256_update_child addr k ptr =
     atomic_set
-      Addr.(addr + _header_length + (k * Addr.length)) Value.addr_rd ptr
+      Addr.(addr + _header_length + (k * Addr.length))
+      Value.addr_rd ptr
 
   let update_child addr k ptr =
     let* ty = get_type addr in
-    Log.debug (fun m -> m "Update child %02x" k) ;
+    Log.debug (fun m ->
+        m "%016x[%02x] <- %02x" (Addr.unsafe_to_int addr) k
+          (Addr.unsafe_to_int ptr));
     match ty with
     | 0 -> n4_update_child addr k ptr
     | 1 -> n16_update_child addr k ptr
@@ -1086,91 +1158,130 @@ module Make (S : S) = struct
   let n16 addr = N16 addr
   let n48 addr = N48 addr
   let n256 addr = N256 addr
-
   let _count = String.make 2 '\000'
   let _compact_count = String.make 2 '\000'
-
   let _n4_ks = String.make 4 '\000'
   let _n4_vs = String.concat "" (List.init 4 (const string_of_null_addr))
   let _n4_align = String.make _n4_align_length '\xff'
 
   let alloc_n4 ~prefix:p ~prefix_count ~level =
     let prefix = Bytes.make 4 '\000' in
-    Bytes.blit_string p 0 prefix 0 (min _prefix (String.length p)) ;
+    Bytes.blit_string p 0 prefix 0 (min _prefix (String.length p));
     let prefix_count = leint31_to_string prefix_count in
     let k = leintnat_to_string ((_n4_kind lsl _bits_kind) lor 0b100) in
     let o = leintnat_to_string 0 in
     let l = leint31_to_string level in
     allocate ~kind:`Node
-      [ Bytes.unsafe_to_string prefix; prefix_count; k; o; l; _count
-      ; _compact_count; _n4_ks; _n4_align; _n4_vs ]
-      ~len:_sizeof_n4 >>| n4
+      [
+        Bytes.unsafe_to_string prefix;
+        prefix_count;
+        k;
+        o;
+        l;
+        _count;
+        _compact_count;
+        _n4_ks;
+        _n4_align;
+        _n4_vs;
+      ]
+      ~len:_sizeof_n4
+    >>| n4
 
   let _n16_ks = String.make 16 '\000'
   let _n16_vs = String.concat "" (List.init 16 (const string_of_null_addr))
 
   let alloc_n16 ~prefix:p ~prefix_count ~level =
     let prefix = Bytes.make 4 '\000' in
-    Bytes.blit_string p 0 prefix 0 (min _prefix (String.length p)) ;
+    Bytes.blit_string p 0 prefix 0 (min _prefix (String.length p));
     let prefix_count = leint31_to_string prefix_count in
     let k = leintnat_to_string ((_n16_kind lsl _bits_kind) lor 0b100) in
     let o = leintnat_to_string 0 in
     let l = leint31_to_string level in
     allocate ~kind:`Node
-      [ Bytes.unsafe_to_string prefix; prefix_count; k; o; l; _count
-      ; _compact_count; _n16_ks; _n16_vs ]
-      ~len:_sizeof_n16 >>| n16
+      [
+        Bytes.unsafe_to_string prefix;
+        prefix_count;
+        k;
+        o;
+        l;
+        _count;
+        _compact_count;
+        _n16_ks;
+        _n16_vs;
+      ]
+      ~len:_sizeof_n16
+    >>| n16
 
   let _n48_ks = String.make 256 '\048'
   let _n48_vs = String.concat "" (List.init 48 (const string_of_null_addr))
 
   let alloc_n48 ~prefix:p ~prefix_count ~level =
     let prefix = Bytes.make 4 '\000' in
-    Bytes.blit_string p 0 prefix 0 (min _prefix (String.length p)) ;
+    Bytes.blit_string p 0 prefix 0 (min _prefix (String.length p));
     let prefix_count = leint31_to_string prefix_count in
     let k = leintnat_to_string ((_n48_kind lsl _bits_kind) lor 0b100) in
     let o = leintnat_to_string 0 in
     let l = leint31_to_string level in
     allocate ~kind:`Node
-      [ Bytes.unsafe_to_string prefix; prefix_count; k; o; l; _count
-      ; _compact_count; _n48_ks; _n48_vs ]
-      ~len:_sizeof_n48 >>| n48
+      [
+        Bytes.unsafe_to_string prefix;
+        prefix_count;
+        k;
+        o;
+        l;
+        _count;
+        _compact_count;
+        _n48_ks;
+        _n48_vs;
+      ]
+      ~len:_sizeof_n48
+    >>| n48
 
   let _n256_vs = String.concat "" (List.init 256 (const string_of_null_addr))
 
   let alloc_n256 ~prefix:p ~prefix_count ~level =
     let prefix = Bytes.make 4 '\000' in
-    Bytes.blit_string p 0 prefix 0 (min _prefix (String.length p)) ;
+    Bytes.blit_string p 0 prefix 0 (min _prefix (String.length p));
     let prefix_count = leint31_to_string prefix_count in
     let k = leintnat_to_string ((_n256_kind lsl _bits_kind) lor 0b100) in
     let o = leintnat_to_string 0 in
     let l = leint31_to_string level in
     allocate ~kind:`Node
-      [ Bytes.unsafe_to_string prefix; prefix_count; k; o; l; _count
-      ; _compact_count; _n256_vs ]
-      ~len:_sizeof_n256 >>| n256
+      [
+        Bytes.unsafe_to_string prefix;
+        prefix_count;
+        k;
+        o;
+        l;
+        _count;
+        _compact_count;
+        _n256_vs;
+      ]
+      ~len:_sizeof_n256
+    >>| n256
 
   (***** COPY CHILD <N0, N1> (assert (sizeof(N0) <= sizeof(N1))) *****)
 
   let rec _copy_n4_into_n16 ~compact_count n4 n16 i =
-    if i = compact_count
-    then return ()
+    if i = compact_count then return ()
     else
-      let* value = atomic_get Addr.(n4 + _header_length + 4 + _n4_align_length + (i * Addr.length))
-          Value.addr_rd in
+      let* value =
+        atomic_get
+          Addr.(n4 + _header_length + 4 + _n4_align_length + (i * Addr.length))
+          Value.addr_rd
+      in
       match Addr.is_null value with
-      | true  -> _copy_n4_into_n16 ~compact_count n4 n16 (succ i)
+      | true -> _copy_n4_into_n16 ~compact_count n4 n16 (succ i)
       | false ->
-        let* key = atomic_get Addr.(n4 + _header_length + i) Value.int8 in
-        let* _   = add_child_n16 n16 key value false in
-        (* XXX(dinosaure): assert (_ = true); *)
-        Log.debug (fun m -> m "<N4 -> N16> copy %02x (%016x)"
-                      key (value :> int)) ;
-        _copy_n4_into_n16 ~compact_count n4 n16 (succ i)
+          let* key = atomic_get Addr.(n4 + _header_length + i) Value.int8 in
+          let* _ = add_child_n16 n16 key value false in
+          (* XXX(dinosaure): assert (_ = true); *)
+          _copy_n4_into_n16 ~compact_count n4 n16 (succ i)
 
   let copy_n4_into_n16 (N4 n4) n16 =
     let* compact_count =
-      atomic_get Addr.(n4 + _header_compact_count) Value.leint16 in
+      atomic_get Addr.(n4 + _header_compact_count) Value.leint16
+    in
     _copy_n4_into_n16 ~compact_count n4 n16 0
 
   (* XXX(dinosaure): [copy_n4_into_n4] is called when:
@@ -1182,72 +1293,98 @@ module Make (S : S) = struct
      [null]. *)
 
   let rec _copy_n4_into_n4 nx ny i =
-    if i = 4
-    then return ()
+    if i = 4 then return ()
     else
-      let* value = atomic_get Addr.(nx + _header_length + 4 + _n4_align_length + (i * Addr.length))
-          Value.addr_rd in
+      let* value =
+        atomic_get
+          Addr.(nx + _header_length + 4 + _n4_align_length + (i * Addr.length))
+          Value.addr_rd
+      in
       match Addr.is_null value with
-      | true  -> _copy_n4_into_n4 nx ny (succ i)
+      | true -> _copy_n4_into_n4 nx ny (succ i)
       | false ->
-        let* key = atomic_get Addr.(nx + _header_length + i) Value.int8 in
-        let* _   = add_child_n4 ny key value false in
-        (* XXX(dinosaure): assert (_ = true); *)
-        _copy_n4_into_n4 nx ny (succ i)
+          let* key = atomic_get Addr.(nx + _header_length + i) Value.int8 in
+          let* _ = add_child_n4 ny key value false in
+          (* XXX(dinosaure): assert (_ = true); *)
+          _copy_n4_into_n4 nx ny (succ i)
 
   let copy_n4_into_n4 (N4 nx) ny = _copy_n4_into_n4 nx ny 0
 
   let rec _copy_n16_into_n48 ~compact_count n16 n48 i =
-    if i = compact_count
-    then return ()
+    if i = compact_count then return ()
     else
-      let* value = atomic_get
-          Addr.(n16 + _header_length + 16 + (i * Addr.length)) Value.addr_rd in
+      let* value =
+        atomic_get
+          Addr.(n16 + _header_length + 16 + (i * Addr.length))
+          Value.addr_rd
+      in
       match Addr.is_null value with
-      | true  -> _copy_n16_into_n48 ~compact_count n16 n48 (succ i)
+      | true -> _copy_n16_into_n48 ~compact_count n16 n48 (succ i)
       | false ->
-        let* key = atomic_get Addr.(n16 + _header_length + i) Value.int8 in
-        let* _   = add_child_n48 n48 (key lxor 128) value false in
-        (* XXX(dinosaure): assert (_ = true); *)
-        _copy_n16_into_n48 ~compact_count n16 n48 (succ i)
+          let* key = atomic_get Addr.(n16 + _header_length + i) Value.int8 in
+          let* _ = add_child_n48 n48 (key lxor 128) value false in
+          (* XXX(dinosaure): assert (_ = true); *)
+          _copy_n16_into_n48 ~compact_count n16 n48 (succ i)
 
   let copy_n16_into_n48 (N16 n16) n48 =
-    let* compact_count = atomic_get Addr.(n16 + _header_compact_count)
-        Value.leint16 in
+    let* compact_count =
+      atomic_get Addr.(n16 + _header_compact_count) Value.leint16
+    in
     _copy_n16_into_n48 ~compact_count n16 n48 0
 
   let rec _copy_n16_into_n16 nx ny i =
-    if i = 16
-    then return ()
+    if i = 16 then return ()
     else
-      let* value = atomic_get
-          Addr.(nx + _header_length + 16 + (i * Addr.length)) Value.addr_rd in
+      let* value =
+        atomic_get
+          Addr.(nx + _header_length + 16 + (i * Addr.length))
+          Value.addr_rd
+      in
       match Addr.is_null value with
-      | true  -> _copy_n16_into_n16 nx ny (succ i)
+      | true -> _copy_n16_into_n16 nx ny (succ i)
       | false ->
-        let* key = atomic_get Addr.(nx + _header_length + i) Value.int8 in
-        let* _   = add_child_n16 ny (key lxor 128) value false in
-        (* XXX(dinosaure): ssert (_ = true); *)
-        _copy_n16_into_n16 nx ny (succ i)
+          let* key = atomic_get Addr.(nx + _header_length + i) Value.int8 in
+          let* _ = add_child_n16 ny (key lxor 128) value false in
+          (* XXX(dinosaure): ssert (_ = true); *)
+          _copy_n16_into_n16 nx ny (succ i)
 
   let copy_n16_into_n16 (N16 nx) ny = _copy_n16_into_n16 nx ny 0
+
+  let rec _copy_n16_into_n4 nx ny i =
+    if i = 16 then return ()
+    else
+      let* value =
+        atomic_get
+          Addr.(nx + _header_length + 16 + (i * Addr.length))
+          Value.addr_rd
+      in
+      match Addr.is_null value with
+      | true -> _copy_n16_into_n4 nx ny (succ i)
+      | false ->
+          let* key = atomic_get Addr.(nx + _header_length + i) Value.int8 in
+          let* _ = add_child_n4 ny (key lxor 128) value false in
+          (* XXX(dinosaure): ssert (_ = true); *)
+          _copy_n16_into_n4 nx ny (succ i)
+
+  let copy_n16_into_n4 (N16 nx) (N4 _ as ny) = _copy_n16_into_n4 nx ny 0
 
   let rec _copy_n48_into_n256 n48 n256 k =
     if k = 256 then return ()
     else
       let* index = atomic_get Addr.(n48 + _header_length + k) Value.int8 in
       match index with
-      | 48  -> _copy_n48_into_n256 n48 n256 (succ k)
+      | 48 -> _copy_n48_into_n256 n48 n256 (succ k)
       | _ ->
-        let* value = atomic_get
-            Addr.(n48 + _header_length + 256 + (index * Addr.length))
-            Value.addr_rd in
-        let* _ = add_child_n256 n256 k value false in
-        (* XXX(dinosaure): assert (_ = true); *)
-        _copy_n48_into_n256 n48 n256 (succ k)
+          let* value =
+            atomic_get
+              Addr.(n48 + _header_length + 256 + (index * Addr.length))
+              Value.addr_rd
+          in
+          let* _ = add_child_n256 n256 k value false in
+          (* XXX(dinosaure): assert (_ = true); *)
+          _copy_n48_into_n256 n48 n256 (succ k)
 
-  let copy_n48_into_n256 (N48 n48) n256 =
-    _copy_n48_into_n256 n48 n256 0
+  let copy_n48_into_n256 (N48 n48) n256 = _copy_n48_into_n256 n48 n256 0
 
   let rec _copy_n48_into_n48 nx ny k =
     if k = 256 then return ()
@@ -1256,39 +1393,72 @@ module Make (S : S) = struct
       match index with
       | 48 -> _copy_n48_into_n48 nx ny (succ k)
       | _ ->
-        let* value = atomic_get
-            Addr.(nx + _header_length + 256 + (index * Addr.length))
-            Value.addr_rd in
-        let* _ = add_child_n48 ny k value false in
-        (* XXX(dinosaure): assert (_ = true); *)
-        _copy_n48_into_n48 nx ny (succ k)
+          let* value =
+            atomic_get
+              Addr.(nx + _header_length + 256 + (index * Addr.length))
+              Value.addr_rd
+          in
+          let* _ = add_child_n48 ny k value false in
+          (* XXX(dinosaure): assert (_ = true); *)
+          _copy_n48_into_n48 nx ny (succ k)
 
   let copy_n48_into_n48 (N48 nx) ny = _copy_n48_into_n48 nx ny 0
+
+  let rec _copy_n48_into_n16 nx ny k =
+    if k = 256 then return ()
+    else
+      let* index = atomic_get Addr.(nx + _header_length + k) Value.int8 in
+      match index with
+      | 48 -> _copy_n48_into_n16 nx ny (succ k)
+      | _ ->
+          let* value =
+            atomic_get
+              Addr.(nx + _header_length + 256 + (index * Addr.length))
+              Value.addr_rd
+          in
+          let* _ = add_child_n16 ny k value false in
+          (* XXX(dinosaure): assert (_ = true); *)
+          _copy_n48_into_n16 nx ny (succ k)
+
+  let copy_n48_into_n16 (N48 nx) (N16 _ as ny) = _copy_n48_into_n16 nx ny 0
+
+  let rec _copy_n256_into_n48 nx ny k =
+    if k = 256 then return ()
+    else
+      let* value =
+        atomic_get Addr.(nx + _header_length + (k * Addr.length)) Value.addr_rd
+      in
+      let* _ =
+        if not (Addr.is_null value) then add_child_n48 ny k value false
+        else return true
+      in
+      _copy_n256_into_n48 nx ny (succ k)
+
+  let copy_n256_into_n48 (N256 nx) (N48 _ as ny) = _copy_n256_into_n48 nx ny 0
 
   let _insert_grow_n4_n16 (N4 addr as n4) p k kp value need_to_restart =
     let* inserted = add_child_n4 n4 k value true in
     if inserted then write_unlock addr
     else
-      ( Log.debug (fun m -> m "We must grow the N4 node to a N16 node")
-      ; let* prefix, prefix_count = get_prefix addr in
-        let* level = get Addr.(addr + _header_depth) Value.leint31 in
-        let* N16 addr' as n16 = alloc_n16 ~prefix ~prefix_count ~level in
-        Log.debug (fun m -> m "Copy N4 children into new N16 node")
-      ; let* () = copy_n4_into_n16 n4 n16 in
-        let* _  = add_child_n16 n16 k value false in
-        (* XXX(dinosaure): assert (_ = true); *)
-        let* () = write_lock_or_restart p need_to_restart in
-        if !need_to_restart
-        then ( let* () = delete addr'
-                   (_header_length + 16 + (Addr.length * 16)) in
-               write_unlock addr )
-        else
-          let* () = persist addr' ~len:_sizeof_n16 in
-          let* () = update_child p kp (Addr.to_rdonly addr') in
-          let* () = write_unlock p in
-          let* () = write_unlock_and_obsolete addr in
-          let* uid = atomic_get Addr.(addr + _header_owner) Value.leintnat in
-          collect addr ~len:(_header_length + 4 + _n4_align_length + (Addr.length * 4)) ~uid )
+      let* prefix, prefix_count = get_prefix addr in
+      let* level = get Addr.(addr + _header_depth) Value.leint31 in
+      let* (N16 addr' as n16) = alloc_n16 ~prefix ~prefix_count ~level in
+      let* () = copy_n4_into_n16 n4 n16 in
+      let* _ = add_child_n16 n16 k value false in
+      (* XXX(dinosaure): assert (_ = true); *)
+      let* () = write_lock_or_restart p need_to_restart in
+      if !need_to_restart then
+        let* () = delete addr' (_header_length + 16 + (Addr.length * 16)) in
+        write_unlock addr
+      else
+        let* () = persist addr' ~len:_sizeof_n16 in
+        let* () = update_child p kp (Addr.to_rdonly addr') in
+        let* () = write_unlock p in
+        let* () = write_unlock_and_obsolete addr in
+        let* uid = atomic_get Addr.(addr + _header_owner) Value.leintnat in
+        collect addr
+          ~len:(_header_length + 4 + _n4_align_length + (Addr.length * 4))
+          ~uid
 
   let _insert_grow_n16_n48 (N16 addr as n16) p k kp value need_to_restart =
     let* inserted = add_child_n16 n16 k value true in
@@ -1296,15 +1466,14 @@ module Make (S : S) = struct
     else
       let* prefix, prefix_count = get_prefix addr in
       let* level = get Addr.(addr + _header_depth) Value.leint31 in
-      let* N48 addr' as n48 = alloc_n48 ~prefix ~prefix_count ~level in
+      let* (N48 addr' as n48) = alloc_n48 ~prefix ~prefix_count ~level in
       let* () = copy_n16_into_n48 n16 n48 in
-      let* _  = add_child_n48 n48 k value false in
+      let* _ = add_child_n48 n48 k value false in
       (* XXX(dinosaure): assert (_ = true); *)
       let* () = write_lock_or_restart p need_to_restart in
-      if !need_to_restart
-      then ( let* () = delete addr'
-                 (_header_length + 256 + (Addr.length * 48)) in
-             write_unlock addr )
+      if !need_to_restart then
+        let* () = delete addr' (_header_length + 256 + (Addr.length * 48)) in
+        write_unlock addr
       else
         let* () = persist addr' ~len:_sizeof_n48 in
         let* () = update_child p kp (Addr.to_rdonly addr') in
@@ -1319,15 +1488,14 @@ module Make (S : S) = struct
     else
       let* prefix, prefix_count = get_prefix addr in
       let* level = get Addr.(addr + _header_depth) Value.leint31 in
-      let* N256 addr' as n256 = alloc_n256 ~prefix ~prefix_count ~level in
+      let* (N256 addr' as n256) = alloc_n256 ~prefix ~prefix_count ~level in
       let* () = copy_n48_into_n256 n48 n256 in
-      let* _  = add_child_n256 n256 k value false in
+      let* _ = add_child_n256 n256 k value false in
       (* XXX(dinosaure): assert (_ = true); *)
       let* () = write_lock_or_restart p need_to_restart in
-      if !need_to_restart
-      then ( let* () = delete addr'
-                 (_header_length + 256 + (Addr.length * 256)) in
-             write_unlock addr )
+      if !need_to_restart then
+        let* () = delete addr' (_header_length + 256 + (Addr.length * 256)) in
+        write_unlock addr
       else
         let* () = persist addr' ~len:_sizeof_n256 in
         let* () = update_child p kp (Addr.to_rdonly addr') in
@@ -1339,33 +1507,37 @@ module Make (S : S) = struct
   let insert_compact_n4 (N4 addr as n4) p k kp value need_to_restart =
     let* prefix, prefix_count = get_prefix addr in
     let* level = get Addr.(addr + _header_depth) Value.leint31 in
-    let* N4 addr' as n4' = alloc_n4 ~prefix ~prefix_count ~level in
+    let* (N4 addr' as n4') = alloc_n4 ~prefix ~prefix_count ~level in
     let* () = copy_n4_into_n4 n4 n4' in
-    let* _  = add_child_n4 n4' k value false in
+    let* _ = add_child_n4 n4' k value false in
     (* XXX(dinosaure): assert (_ = true); *)
     let* () = write_lock_or_restart p need_to_restart in
-    if !need_to_restart
-    then ( let* () = delete addr' (_header_length + 4 + _n4_align_length + (Addr.length * 4)) in
-           write_unlock addr )
+    if !need_to_restart then
+      let* () =
+        delete addr' (_header_length + 4 + _n4_align_length + (Addr.length * 4))
+      in
+      write_unlock addr
     else
       let* () = persist addr' ~len:_sizeof_n4 in
       let* () = update_child p kp (Addr.to_rdonly addr') in
       let* () = write_unlock p in
       let* () = write_unlock_and_obsolete addr in
       let* uid = atomic_get Addr.(addr + _header_owner) Value.leintnat in
-      collect addr ~len:(_header_length + 4 + _n4_align_length + (Addr.length * 4)) ~uid
+      collect addr
+        ~len:(_header_length + 4 + _n4_align_length + (Addr.length * 4))
+        ~uid
 
   let insert_compact_n16 (N16 addr as n16) p k kp value need_to_restart =
     let* prefix, prefix_count = get_prefix addr in
     let* level = get Addr.(addr + _header_depth) Value.leint31 in
-    let* N16 addr' as n16' = alloc_n16 ~prefix ~prefix_count ~level in
+    let* (N16 addr' as n16') = alloc_n16 ~prefix ~prefix_count ~level in
     let* () = copy_n16_into_n16 n16 n16' in
-    let* _  = add_child_n16 n16' k value false in
+    let* _ = add_child_n16 n16' k value false in
     (* XXX(dinosaure): assert (_ = true); *)
     let* () = write_lock_or_restart p need_to_restart in
-    if !need_to_restart
-    then ( let* () = delete addr' (_header_length + 16 + (Addr.length * 16)) in
-           write_unlock addr )
+    if !need_to_restart then
+      let* () = delete addr' (_header_length + 16 + (Addr.length * 16)) in
+      write_unlock addr
     else
       let* () = persist addr' ~len:_sizeof_n16 in
       let* () = update_child p kp (Addr.to_rdonly addr') in
@@ -1377,14 +1549,14 @@ module Make (S : S) = struct
   let insert_compact_n48 (N48 addr as n48) p k kp value need_to_restart =
     let* prefix, prefix_count = get_prefix addr in
     let* level = get Addr.(addr + _header_depth) Value.leint31 in
-    let* N48 addr' as n48' = alloc_n48 ~prefix ~prefix_count ~level in
+    let* (N48 addr' as n48') = alloc_n48 ~prefix ~prefix_count ~level in
     let* () = copy_n48_into_n48 n48 n48' in
-    let* _  = add_child_n48 n48' k value false in
+    let* _ = add_child_n48 n48' k value false in
     (* XXX(dinosaure): assert (_ = true); *)
     let* () = write_lock_or_restart p need_to_restart in
-    if !need_to_restart
-    then ( let* () = delete addr' (_header_length + 256 + (Addr.length * 48)) in
-           write_unlock addr )
+    if !need_to_restart then
+      let* () = delete addr' (_header_length + 256 + (Addr.length * 48)) in
+      write_unlock addr
     else
       let* () = persist addr' ~len:_sizeof_n48 in
       let* () = update_child p kp (Addr.to_rdonly addr') in
@@ -1397,47 +1569,66 @@ module Make (S : S) = struct
     let* ty = get_type n in
     match ty with
     | 0 ->
-      let* compact_count =
-        atomic_get Addr.(n + _header_compact_count) Value.leint16 in
-      let* count = atomic_get Addr.(n + _header_count) Value.leint16 in
-      Log.debug (fun m -> m "insert %02x into N4 (compact_count: %d, count: %d)"
-                    k compact_count count) ;
-      if compact_count = 4 && count <= 3
-      then insert_compact_n4 (N4 n) p k kp value need_to_restart
-      else _insert_grow_n4_n16 (N4 n) p k kp value need_to_restart
+        let* compact_count =
+          atomic_get Addr.(n + _header_compact_count) Value.leint16
+        in
+        let* count = atomic_get Addr.(n + _header_count) Value.leint16 in
+        if compact_count = 4 && count <= 3 then
+          insert_compact_n4 (N4 n) p k kp value need_to_restart
+        else _insert_grow_n4_n16 (N4 n) p k kp value need_to_restart
     | 1 ->
-      let* compact_count =
-        atomic_get Addr.(n + _header_compact_count) Value.leint16 in
-      let* count = atomic_get Addr.(n + _header_count) Value.leint16 in
-      if compact_count = 16 && count <= 14
-      then insert_compact_n16 (N16 n) p k kp value need_to_restart
-      else _insert_grow_n16_n48 (N16 n) p k kp value need_to_restart
+        let* compact_count =
+          atomic_get Addr.(n + _header_compact_count) Value.leint16
+        in
+        let* count = atomic_get Addr.(n + _header_count) Value.leint16 in
+        if compact_count = 16 && count <= 14 then
+          insert_compact_n16 (N16 n) p k kp value need_to_restart
+        else _insert_grow_n16_n48 (N16 n) p k kp value need_to_restart
     | 2 ->
-      let* compact_count =
-        atomic_get Addr.(n + _header_compact_count) Value.leint16 in
-      let* count = atomic_get Addr.(n + _header_count) Value.leint16 in
-      if compact_count = 48 && count <> 48
-      then insert_compact_n48 (N48 n) p k kp value need_to_restart
-      else _insert_grow_n48_n256 (N48 n) p k kp value need_to_restart
+        let* compact_count =
+          atomic_get Addr.(n + _header_compact_count) Value.leint16
+        in
+        let* count = atomic_get Addr.(n + _header_count) Value.leint16 in
+        if compact_count = 48 && count <> 48 then
+          insert_compact_n48 (N48 n) p k kp value need_to_restart
+        else _insert_grow_n48_n256 (N48 n) p k kp value need_to_restart
     | 3 ->
-      Log.debug (fun m -> m "insert %02x into N256" k);
-      (* TODO(dinosaure): [P-ART] uses [insertCompact<N256>] and [ROWEX]
-         just do a simple [insert]. I'm not sure about this part! *)
-      let* _  = add_child_n256 (N256 n) k value true in
-      let* () = write_unlock n in
-      return ()
+        Log.debug (fun m ->
+            m "%016x[%02x] <- %016x (node256)" (Addr.unsafe_to_int n) k
+              (Addr.unsafe_to_int value));
+        (* TODO(dinosaure): [P-ART] uses [insertCompact<N256>] and [ROWEX]
+           just do a simple [insert]. I'm not sure about this part! *)
+        let* _ = add_child_n256 (N256 n) k value true in
+        let* () = write_unlock n in
+        return ()
     | _ -> assert false
 
   let check_or_raise_duplicate ~level:off a b =
-    Log.debug (fun m -> m "check duplicate ~level:%d %S %S" off a b) ;
-    if String.length a = String.length b
-    then ( let idx = ref (String.length a - 1) in
-           while !idx >= off && a.[!idx] = b.[!idx] do decr idx done ;
-           if !idx < off then raise Duplicate )
+    if String.length a = String.length b then (
+      let idx = ref (String.length a - 1) in
+      while !idx >= off && a.[!idx] = b.[!idx] do
+        decr idx
+      done;
+      if !idx < off then raise Duplicate)
+
+  let pp_hex ppf s =
+    for idx = 0 to String.length s - 1 do
+      let c = s.[idx] in
+      Format.fprintf ppf "%02x" (int_of_char c)
+    done
+
+  let rec max_hex = 8
+
+  and pp_key ~level ppf key =
+    if level >= String.length key || level < 0 then Fmt.pf ppf "ε"
+    else
+      let key = String.(sub key level (length key - level)) in
+      if String.length key >= max_hex then
+        Fmt.pf ppf "%a..." pp_hex (String.sub key 0 max_hex)
+      else Fmt.pf ppf "%a" pp_hex key
 
   let rec insert root key leaf =
     let rec restart () = insert root key leaf
-
     (* XXX(dinosaure): with [multicore] (eg. ['a t = 'a]), it should be posible
        to raise an exception [Restart] and simulate a [goto] as ROWEX explains.
        However, if we took the monadic-view of ['a t], [Restart] will leak.
@@ -1445,137 +1636,157 @@ module Make (S : S) = struct
        So we call [restart] and ensure that the call is tail-recursive (and can
        be optimised by OCaml). Then, we compile with [-unbox-closures] to avoid
        allocation on this area - but we need to introspect such optimisation. *)
-
-    and _insert (node : rdwr Addr.t) parent pk level =
+    and _insert (node : rdwr Addr.t) parent kp level =
       let need_to_restart = ref false in
       let* version = get_version node in
       let* res = check_prefix_pessimistic node ~key level in
-      ( match res with
+      match res with
       | Skipped_level -> restart ()
-      | No_match { non_matching_key; non_matching_prefix; level= level'; } ->
-        Log.debug (fun m -> m "check_prefix_pessimistic %016x ~key:%S %d : \
-                               No_match { non_matching_key: %c; \
-                               non_matching_prefix: %S; level: %d }"
-                      (node :> int) key level non_matching_key
-                      non_matching_prefix level') ;
-        if level' > String.length key then raise Duplicate ;
-        (* XXX(dinosaure): such [if] is may be wrong... TODO! *)
-        let* _version = lock_version_or_restart node version need_to_restart in
-        if !need_to_restart then (restart[@tailcall]) () else
-        let* prefix, _ = get_prefix node in
-        Log.debug (fun m -> m "prefix of the current node %016x: %S" (node :> int) prefix) ;
-        let* N4 addr as n4 =
-          alloc_n4 ~prefix ~prefix_count:(level' - level) ~level:level' in
-        let* _             = add_child_n4 n4 (Char.code key.![level']) leaf
-            false in
-        let* _             = add_child_n4 n4 (Char.code non_matching_key)
-            (Addr.to_rdonly node) false in
-        let* ()            = persist addr ~len:_sizeof_n4 in
-        let* ()            = write_lock_or_restart parent need_to_restart in
-        if !need_to_restart
-        then
-          let* () = delete addr (_header_length + 4 + (Addr.length * 4)) in
-          let* () = write_unlock node in
-          (restart[@tailcall]) ()
-        else
-          (* XXX(dinosaure): red-zone, it's not possible to install a new node
-             and truncate the prefix in a single operation. As a consequence, a
-             reader may see the intermediate state. To solve this problem, we
-             augment each node with a 'level' field, which stores the hieght of
-             the node including the prefix and which never changes after a node
-             has been created.
-
-             With this additional information, the intermediate state is safe,
-             because **the reader will detect that the prefix has to be
-             skipped**. Similarly, it is also possible that a reader sees the
-             final state without seen the new node. In that situation, the
-             reader can detect the missing prefix using level field and
-             retrieve the missing key from database.
-
-             With P-ART, the C++ code tries to simulate the inconsistence with
-             the macro CRASH_SPLIT. We did not integrate it here. *)
-          let* () = update_child parent pk (Addr.to_rdonly addr) in
-          let* () = write_unlock parent in
-          let* _, prefix_count = get_prefix node in
-          Log.debug (fun m -> m "set-prefix: level':%d" level') ;
-          Log.debug (fun m -> m "set-prefix: level :%d" level ) ;
-          Log.debug (fun m -> m "set-prefix: prefix-count:%d" prefix_count) ;
-          Log.debug (fun m -> m "set-prefix %016x ~prefix:%S ~prefix_count:%d" (node :> int) non_matching_prefix (prefix_count - ((level' - level) + 1))) ;
-          let* () = set_prefix node ~prefix:non_matching_prefix
-              ~prefix_count:(prefix_count - ((level' - level) + 1)) true in
-          let* () = write_unlock node in
-          return ()
-      | Match { level= level' } ->
-        Log.debug (fun m -> m "check_prefix_pessimistic %016x ~key:%S %d : \
-                               Match { %d }"
-                              (node :> int) key level level') ;
-        let level = level' in
-        let* next = find_child node key.![level] in
-        Log.debug (fun m -> m "child is null: %b." (Addr.is_null next)) ;
-        if Addr.is_null next
-        then
+      | No_match { non_matching_key; non_matching_prefix; level = level' } ->
+          if level' > String.length key then raise Duplicate;
+          (* XXX(dinosaure): such [if] is may be wrong... TODO! *)
           let* _version =
-            lock_version_or_restart node version need_to_restart in
-          if !need_to_restart then (restart[@tailcall]) () else
-            ( let* () = insert_and_unlock node parent (Char.code key.![level])
-                  pk leaf need_to_restart in
-              if !need_to_restart then (restart[@tailcall]) ()
-              else return () )
-        else if (next :> int) land 1 = 1
-        then
-          let () = Log.debug (fun m -> m "the child is a leaf.") in
-          let* key' = get (Leaf.prj (Addr.unsafe_to_leaf next))
-              Value.c_string in
-          check_or_raise_duplicate ~level:(level + 1) key key' ;
-          (* XXX(dinosaure): in the C impl., this check does **not** exists but:
-             - create ()
-             - insert "foo" 0
-             - insert "foo" 1
-             seems to work. So, the check try find the diff between [key] and
-             [key'] from the end of these strings. The worst case is when
-             [key = key'] of course but we should assume that the user does not
-             want to insert several times the same key. *)
-          let* _version =
-            lock_version_or_restart node version need_to_restart in
-          if !need_to_restart then (restart[@tailcall]) () else
-          ( let prefix = Bytes.make _prefix '\000' in
-            let prefix_count = ref 0 in
-            let top = min (String.length key - (level + 1))
-                (String.length key' - (level + 1)) in
-            while !prefix_count < top
-                  && key.[level + 1 + !prefix_count] =
-                     key'.[level + 1 + !prefix_count]
-            do if !prefix_count < 4
-              then Bytes.set prefix !prefix_count
-                  key.[level + 1 + !prefix_count] ;
-              incr prefix_count done ;
-            Log.debug (fun m -> m "prefix:%S (count: %d)"
-                          (Bytes.unsafe_to_string prefix) !prefix_count) ;
-            let* N4 addr as n4 =
-              alloc_n4 ~prefix:(Bytes.unsafe_to_string prefix)
-                ~prefix_count:!prefix_count
-                ~level:(level + 1 + !prefix_count) in
-            (* XXX(dinosaure): Imagine you add "foo" and "fo" into an empty tree
-               (see [ctor]), we have: 1) a prefix "o" 2) an alteration between
-               the end of "fo" and the last "o" of "foo". In that case, we must
-               have an ~illegal~ access on these strings - fortunately, OCaml
-               always pads a string with at least, one '\000'. So even if it
-               seems an unsafe access, it is ~safe~ in this **specific**
-               context. *)
-            let* _   = add_child_n4 n4
-                (Char.code key.![level + 1 + !prefix_count]) leaf false in
-            let* _   = add_child_n4 n4
-                (Char.code key'.![level + 1 + !prefix_count]) next false in
+            lock_version_or_restart node version need_to_restart
+          in
+          if !need_to_restart then (restart [@tailcall]) ()
+          else
+            let* prefix, _ = get_prefix node in
+            let* (N4 addr as n4) =
+              alloc_n4 ~prefix ~prefix_count:(level' - level) ~level:level'
+            in
+            let* _ = add_child_n4 n4 (Char.code key.![level']) leaf false in
+            let* _ =
+              add_child_n4 n4
+                (Char.code non_matching_key)
+                (Addr.to_rdonly node) false
+            in
             let* () = persist addr ~len:_sizeof_n4 in
-            Log.debug (fun m -> m "Update key.[%d] = %c." level key.[level]) ;
-            let* _   = update_child node
-                (Char.code key.[level]) (Addr.to_rdonly addr) in
-            let* _   = write_unlock node in
-            return () )
-        else
-          let () = Log.debug (fun m -> m "the child is a node.") in
-          _insert (Addr.of_int_to_rdwr (next :> int)) node
-            (Char.code key.[level]) (succ level) ) in
+            let* () = write_lock_or_restart parent need_to_restart in
+            if !need_to_restart then
+              let* () = delete addr (_header_length + 4 + (Addr.length * 4)) in
+              let* () = write_unlock node in
+              (restart [@tailcall]) ()
+            else
+              (* XXX(dinosaure): red-zone, it's not possible to install a new node
+                 and truncate the prefix in a single operation. As a consequence, a
+                 reader may see the intermediate state. To solve this problem, we
+                 augment each node with a 'level' field, which stores the hieght of
+                 the node including the prefix and which never changes after a node
+                 has been created.
+
+                 With this additional information, the intermediate state is safe,
+                 because **the reader will detect that the prefix has to be
+                 skipped**. Similarly, it is also possible that a reader sees the
+                 final state without seen the new node. In that situation, the
+                 reader can detect the missing prefix using level field and
+                 retrieve the missing key from database.
+
+                 With P-ART, the C++ code tries to simulate the inconsistence with
+                 the macro CRASH_SPLIT. We did not integrate it here. *)
+              let* () = update_child parent kp (Addr.to_rdonly addr) in
+              let* () = write_unlock parent in
+              let* _, prefix_count = get_prefix node in
+              let* () =
+                set_prefix node ~prefix:non_matching_prefix
+                  ~prefix_count:(prefix_count - (level' - level + 1))
+                  true
+              in
+              let* () = write_unlock node in
+              return ()
+      | Match { level = level' } ->
+          let level = level' in
+          let* next = find_child node key.![level] in
+          Log.debug (fun m ->
+              m "%016x[%02x] is null? %b" (Addr.unsafe_to_int node)
+                (Char.code key.![level])
+                (Addr.is_null next));
+          if Addr.is_null next then
+            let* _version =
+              lock_version_or_restart node version need_to_restart
+            in
+            if !need_to_restart then (restart [@tailcall]) ()
+            else
+              let* () =
+                insert_and_unlock node parent
+                  (Char.code key.![level])
+                  kp leaf need_to_restart
+              in
+              if !need_to_restart then (restart [@tailcall]) () else return ()
+          else if (next :> int) land 1 = 1 then (
+            let () =
+              Log.debug (fun m ->
+                  m "%016x[%02x] is a leaf" (Addr.unsafe_to_int node)
+                    (Char.code key.![level]))
+            in
+            let* key' =
+              get (Leaf.prj (Addr.unsafe_to_leaf next)) Value.c_string
+            in
+            check_or_raise_duplicate ~level:(level + 1) key key';
+            (* XXX(dinosaure): in the C impl., this check does **not** exists but:
+               - create ()
+               - insert "foo" 0
+               - insert "foo" 1
+               seems to work. So, the check try find the diff between [key] and
+               [key'] from the end of these strings. The worst case is when
+               [key = key'] of course but we should assume that the user does not
+               want to insert several times the same key. *)
+            let* _version =
+              lock_version_or_restart node version need_to_restart
+            in
+            if !need_to_restart then (restart [@tailcall]) ()
+            else
+              let prefix = Bytes.make _prefix '\000' in
+              let prefix_count = ref 0 in
+              let top =
+                min
+                  (String.length key - (level + 1))
+                  (String.length key' - (level + 1))
+              in
+              while
+                !prefix_count < top
+                && key.[level + 1 + !prefix_count]
+                   = key'.[level + 1 + !prefix_count]
+              do
+                if !prefix_count < 4 then
+                  Bytes.set prefix !prefix_count key.[level + 1 + !prefix_count];
+                incr prefix_count
+              done;
+              let* (N4 addr as n4) =
+                alloc_n4
+                  ~prefix:(Bytes.unsafe_to_string prefix)
+                  ~prefix_count:!prefix_count
+                  ~level:(level + 1 + !prefix_count)
+              in
+              (* XXX(dinosaure): Imagine you add "foo" and "fo" into an empty tree
+                 (see [ctor]), we have: 1) a prefix "o" 2) an alteration between
+                 the end of "fo" and the last "o" of "foo". In that case, we must
+                 have an ~illegal~ access on these strings - fortunately, OCaml
+                 always pads a string with at least, one '\000'. So even if it
+                 seems an unsafe access, it is ~safe~ in this **specific**
+                 context. *)
+              let* _ =
+                add_child_n4 n4
+                  (Char.code key.![level + 1 + !prefix_count])
+                  leaf false
+              in
+              let* _ =
+                add_child_n4 n4
+                  (Char.code key'.![level + 1 + !prefix_count])
+                  next false
+              in
+              let* () = persist addr ~len:_sizeof_n4 in
+              let* _ =
+                update_child node (Char.code key.[level]) (Addr.to_rdonly addr)
+              in
+              let* _ = write_unlock node in
+              return ())
+          else
+            _insert
+              (Addr.of_int_to_rdwr (next :> int))
+              node
+              (Char.code key.[level])
+              (succ level)
+    in
 
     (* XXX(dinosaure): [ctor] creates a [N256] node on the [root]. So, the case
        to enlarge the current [root] node **can not** appears and the "parent"
@@ -1587,23 +1798,375 @@ module Make (S : S) = struct
        [Addr.null]. According to the comment below, this write access should not
        be used to write something into [Addr.null] but we need to play the game
        of the type-system. *)
-
     _insert root Addr.(of_int_to_rdwr (null :> int)) 0 0
 
+  let _n4_get_second_child addr key =
+    let rec go i =
+      let* compact_count =
+        atomic_get Addr.(addr + _header_compact_count) Value.leint16
+      in
+      if i < compact_count then
+        let* child =
+          atomic_get
+            Addr.(
+              addr + _header_length + 4 + _n4_align_length + (Addr.length * i))
+            Value.addr_rdwr
+        in
+        if not (Addr.is_null child) then
+          let* k = atomic_get Addr.(addr + _header_length + i) Value.int8 in
+          if k != key then return (child, Char.unsafe_chr k) else go (succ i)
+        else go (succ i)
+      else return (Addr.null, '\000')
+    in
+    go 0
+
+  let _get_second_child addr chr =
+    let key = Char.code chr in
+    let* ty = get_type addr in
+    match ty with 0 -> _n4_get_second_child addr key | _ -> assert false
+
+  let _n4_remove ~force:_ ?(flush = true) addr key =
+    let rec go i =
+      let* compact_count =
+        atomic_get Addr.(addr + _header_compact_count) Value.leint16
+      in
+      if i < compact_count then
+        let* child =
+          atomic_get
+            Addr.(
+              addr + _header_length + 4 + _n4_align_length + (Addr.length * i))
+            Value.addr_rdwr
+        in
+        let* k = atomic_get Addr.(addr + _header_length + i) Value.int8 in
+        if (not (Addr.is_null child)) && k == key then
+          let* () =
+            atomic_set
+              Addr.(
+                to_wronly
+                  (addr + _header_length + 4 + _n4_align_length
+                 + (i * Addr.length)))
+              Value.addr_rd
+              Addr.(to_rdonly null)
+          in
+          let* () =
+            if flush then
+              persist
+                Addr.(
+                  to_wronly
+                    (addr + _header_length + 4 + _n4_align_length
+                   + (i * Addr.length)))
+                ~len:Addr.length
+            else return ()
+          in
+          let* _ = fetch_sub Addr.(addr + _header_count) Value.leint16 1 in
+          return true
+        else go (succ i)
+      else go (succ i)
+    in
+    go 0
+
+  let _n16_remove ~force ?(flush = true) addr key =
+    let* count = atomic_get Addr.(addr + _header_count) Value.leint16 in
+    if count <= 3 && not force then return false
+    else
+      let* leaf = _n16_child_pos addr key in
+      let* () =
+        atomic_set Addr.(to_wronly leaf) Value.addr_rd Addr.(to_rdonly null)
+      in
+      let* () =
+        if flush then persist Addr.(to_wronly leaf) ~len:Addr.length
+        else return ()
+      in
+      let* _ = fetch_sub Addr.(addr + _header_count) Value.leint16 1 in
+      return true
+
+  let _n48_remove ~force ?(flush = true) addr key =
+    let* count = atomic_get Addr.(addr + _header_count) Value.leint16 in
+    if count <= 12 && not force then return false
+    else
+      let* () =
+        if flush then
+          let* child_index =
+            atomic_get Addr.(addr + _header_length + key) Value.int8
+          in
+          let leaf =
+            Addr.(addr + _header_length + 256 + (child_index * Addr.length))
+          in
+          let* () =
+            atomic_set Addr.(to_wronly leaf) Value.addr_rd Addr.(to_rdonly null)
+          in
+          let* () = persist Addr.(to_wronly leaf) ~len:Addr.length in
+          let* () =
+            atomic_set
+              Addr.(to_wronly (addr + _header_length + key))
+              Value.int8 48
+          in
+          persist Addr.(to_wronly (addr + _header_length + (key / 8))) ~len:64
+        else
+          let* child_index =
+            atomic_get Addr.(addr + _header_length + key) Value.int8
+          in
+          let leaf =
+            Addr.(addr + _header_length + 256 + (child_index * Addr.length))
+          in
+          let* () =
+            atomic_set Addr.(to_wronly leaf) Value.addr_rd Addr.(to_rdonly null)
+          in
+          atomic_set
+            Addr.(to_wronly (addr + _header_length + key))
+            Value.int8 48
+      in
+      let* _ = fetch_sub Addr.(addr + _header_count) Value.leint16 1 in
+      return true
+
+  let _n256_remove ~force ?(flush = true) addr key =
+    let* count = atomic_get Addr.(addr + _header_count) Value.leint16 in
+    if count <= 37 && not force then return false
+    else
+      let leaf = Addr.(addr + _header_length + (Addr.length * key)) in
+      let* () =
+        atomic_set Addr.(to_wronly leaf) Value.addr_rd Addr.(to_rdonly null)
+      in
+      let* () =
+        if flush then persist Addr.(to_wronly leaf) ~len:Addr.length
+        else return ()
+      in
+      let* _ = fetch_sub Addr.(addr + _header_count) Value.leint16 1 in
+      return true
+
+  let _remove ~force ?flush addr chr =
+    let k = Char.code chr in
+    let* ty = get_type addr in
+    match ty with
+    | 0 -> _n4_remove ~force ?flush addr k
+    | 1 -> _n16_remove ~force ?flush addr k
+    | 2 -> _n48_remove ~force ?flush addr k
+    | 3 -> _n256_remove ~force ?flush addr k
+    | _ -> assert false
+
+  let addr : type a. a node -> rdwr Addr.t = function
+    | N4 addr -> addr
+    | N16 addr -> addr
+    | N48 addr -> addr
+    | N256 addr -> addr
+
+  let length : type a. a node -> int = function
+    | N4 _ -> _sizeof_n4
+    | N16 _ -> _sizeof_n16
+    | N48 _ -> _sizeof_n48
+    | N256 _ -> _sizeof_n256
+
+  let shrink :
+      type v.
+      v succ node -> v node -> _ Addr.t -> char -> char -> bool ref -> unit t =
+   fun n n_small p k kp need_to_restart ->
+    let* () = write_lock_or_restart p need_to_restart in
+    if !need_to_restart then
+      let* () = delete (addr n_small) (length n_small) in
+      write_unlock (addr n)
+    else
+      let* _ = _remove ~force:true ~flush:true (addr n) k in
+      let* () =
+        match (n, n_small) with
+        | N16 _, N4 _ -> copy_n16_into_n4 n n_small
+        | N48 _, N16 _ -> copy_n48_into_n16 n n_small
+        | N256 _, N48 _ -> copy_n256_into_n48 n n_small
+      in
+      let* () = persist Addr.(to_wronly (addr n_small)) ~len:(length n_small) in
+      let* () = update_child p (Char.code kp) (Addr.to_rdonly (addr n_small)) in
+      let* () = write_unlock p in
+      let* _ = write_unlock_obsolete (addr n) in
+      let* uid = atomic_get Addr.(addr n + _header_owner) Value.leintnat in
+      let n_length = length n in
+      collect (addr n) ~len:n_length ~uid
+
+  let remove_and_shrink n p k kp need_to_restart =
+    let* res = _remove ~force:(Addr.is_null p) ~flush:true n k in
+    if res then write_unlock n
+    else
+      let* ty = get_type n in
+      (* TODO(dinosaure): repetition with [remove_and_unlock]. *)
+      let* level = get Addr.(n + _header_depth) Value.leint31 in
+      let* prefix, prefix_count = get_prefix n in
+      match ty with
+      | 1 ->
+          let* n_small = alloc_n4 ~prefix ~prefix_count ~level in
+          shrink (N16 n) n_small p k kp need_to_restart
+      | 2 ->
+          let* n_small = alloc_n16 ~prefix ~prefix_count ~level in
+          shrink (N48 n) n_small p k kp need_to_restart
+      | 3 ->
+          let* n_small = alloc_n48 ~prefix ~prefix_count ~level in
+          shrink (N256 n) n_small p k kp need_to_restart
+      | _ -> assert false
+
+  let remove_and_unlock n p k kp need_to_restart =
+    let* ty = get_type n in
+    match ty with
+    | 0 ->
+        let* _ = _n4_remove ~force:false ~flush:true n (Char.code k) in
+        write_unlock n
+    | _ -> remove_and_shrink n p k kp need_to_restart
+
+  let add_prefix_before n0 n1 k =
+    let* p0, p0_length = get_prefix n0 in
+    let* p1, p1_length = get_prefix n1 in
+    let prefix_copy_count = min _prefix (p1_length + 1) in
+    let p0' = Bytes.of_string p0 in
+    Bytes.blit p0' 0 p0' prefix_copy_count
+      (min p0_length (_prefix - prefix_copy_count));
+    Bytes.blit_string p1 0 p0' 0 (min prefix_copy_count p1_length);
+    if p1_length < _prefix then Bytes.set p0' (prefix_copy_count - 1) k;
+    let p0_count' = p1_length + 1 in
+    set_prefix n0
+      ~prefix:(Bytes.unsafe_to_string p0')
+      ~prefix_count:p0_count' true
+
+  let rec remove root key : unit t =
+    let rec restart () = remove root key
+    and _remove (next_node : _ wr Addr.t) (node : _ wr Addr.t) ~key ~key_len
+        (node_key : char) level =
+      let parent = node in
+      let parent_key = node_key in
+      let node = next_node in
+      let need_to_restart = ref false in
+      let* version = get_version node in
+      let* res = check_prefix node ~key ~key_len level in
+      let level = level + abs res in
+      if key_len < level then
+        let* version' = atomic_get Addr.(node + _header_kind) Value.leintnat in
+        if is_obsolete version || version != version' then
+          (restart [@tailcall]) ()
+        else raise Not_found
+      else
+        let* next_node = find_child node key.![level] in
+        Log.debug (fun m ->
+            m "next node %016x (from %016x[%02x]) is a leaf? %b"
+              (Addr.unsafe_to_int next_node)
+              (Addr.unsafe_to_int node)
+              (Char.code key.![level])
+              (Addr.unsafe_to_int next_node land 1 = 1));
+        let next_node = Addr.unsafe_to_rdwr next_node in
+        if Addr.is_null next_node then (
+          Log.debug (fun m ->
+              m "search %02x from %a (node:%016x, level:%d): not found"
+                (Char.code key.![level])
+                (pp_key ~level) key (Addr.unsafe_to_int node) level);
+          let* version' =
+            atomic_get Addr.(node + _header_kind) Value.leintnat
+          in
+          if is_obsolete version || version != version' then
+            (restart [@tailcall]) ()
+          else raise Not_found)
+        else if
+          Addr.unsafe_to_int next_node land 1
+          = 1 (* XXX(dinosaure): it is a leaf. *)
+        then (
+          let* _version =
+            lock_version_or_restart node version need_to_restart
+          in
+          Log.debug (fun m ->
+              m "lock %016x, need to restart? %b" (Addr.unsafe_to_int node)
+                !need_to_restart);
+          if !need_to_restart then (restart [@tailcall]) ()
+          else
+            let* count = atomic_get Addr.(node + _header_count) Value.leint16 in
+            if count == 2 && node != root then (
+              (* XXX(dinosaure): [get_type node == 0] (N4) *)
+              let* second_node, second_node_k =
+                _get_second_child node key.![level]
+              in
+              Log.debug (fun m ->
+                  m "second node of %016x is %016x" (Addr.unsafe_to_int node)
+                    (Addr.unsafe_to_int second_node));
+              if
+                (second_node :> int) land 1
+                = 1 (* XXX(dinosaure): it is a leaf. *)
+              then
+                let* () = write_lock_or_restart parent need_to_restart in
+                if !need_to_restart then
+                  let* () = write_unlock node in
+                  (restart [@tailcall]) ()
+                else
+                  let* () =
+                    update_child parent (Char.code parent_key)
+                      (Addr.to_rdonly second_node)
+                  in
+                  let* () = write_unlock parent in
+                  let* uid =
+                    atomic_get Addr.(node + _header_owner) Value.leintnat
+                  in
+                  collect node
+                    ~len:
+                      (_header_length + 4 + _n4_align_length + (Addr.length * 4))
+                    ~uid
+              else
+                let* version_child = get_version second_node in
+                let* _ =
+                  lock_version_or_restart second_node version_child
+                    need_to_restart
+                in
+                if !need_to_restart then
+                  let* () = write_unlock node in
+                  (restart [@tailcall]) ()
+                else
+                  let* () = write_lock_or_restart parent need_to_restart in
+                  if !need_to_restart then
+                    let* () = write_unlock node in
+                    let* () = write_unlock second_node in
+                    (restart [@tailcall]) ()
+                  else
+                    let* () =
+                      update_child parent (Char.code parent_key)
+                        (Addr.to_rdonly second_node)
+                    in
+                    let* () =
+                      add_prefix_before second_node node second_node_k
+                    in
+                    let* () = write_unlock parent in
+                    let* _ = write_unlock_obsolete node in
+                    let* uid =
+                      atomic_get Addr.(node + _header_owner) Value.leintnat
+                    in
+                    let* () =
+                      collect node
+                        ~len:
+                          (_header_length + 4 + _n4_align_length
+                         + (Addr.length * 4))
+                        ~uid
+                    in
+                    write_unlock second_node)
+            else
+              let* () =
+                remove_and_unlock node parent key.![level] parent_key
+                  need_to_restart
+              in
+              if !need_to_restart then (restart [@tailcall]) () else return ())
+        else _remove next_node node ~key ~key_len key.![level] (succ level)
+    in
+    _remove root
+      Addr.(of_int_to_rdwr (null :> int))
+      ~key ~key_len:(String.length key) '\000' 0
+
+  let remove root key =
+    Log.debug (fun m -> m "Remove");
+    Log.debug (fun m -> m "@[<hov>%a@]" (Hxd_string.pp Hxd.default) key);
+    remove root key
+
   let make () =
-    let* N256 addr = alloc_n256 ~prefix:"" ~prefix_count:0 ~level:0 in
-    return (addr)
+    let* (N256 addr) = alloc_n256 ~prefix:"" ~prefix_count:0 ~level:0 in
+    return addr
 
   let insert root key value =
-    Log.debug (fun m -> m "Insert %S." key) ;
-    let len = (String.length key + size_of_word) / size_of_word in (* padding *)
+    Log.debug (fun m -> m "Insert");
+    Log.debug (fun m -> m "@[<hov>%a@]" (Hxd_string.pp Hxd.default) key);
+    let len = (String.length key + size_of_word) / size_of_word in
+    (* padding *)
     let len = len * size_of_word in
     let pad = String.make (len - String.length key) '\000' in
     let value = leintnat_to_string value in
     let* leaf = allocate ~kind:`Leaf [ key; pad; value ] in
-    Log.debug (fun m -> m "Insert %S at %016x" key (leaf :> int)) ;
-    let* () = insert root key (Addr.unsafe_of_leaf (Leaf.inj leaf)) in
-    Log.debug (fun m -> m "%S inserted." key) ; return ()
+    insert root key (Addr.unsafe_of_leaf (Leaf.inj leaf))
 
   [@@@warning "-32"]
 end
