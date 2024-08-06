@@ -229,7 +229,7 @@ type 'a fmt = Format.formatter -> 'a -> unit
 
 let pf ppf fmt = Format.fprintf ppf fmt
 
-let pp_value : type c a. (c, a) value fmt =
+let[@coverage off] pp_value : type c a. (c, a) value fmt =
  fun ppf -> function
   | LEInt -> pf ppf "leintnat"
   | LEInt31 -> pf ppf "leint31"
@@ -243,7 +243,7 @@ let pp_value : type c a. (c, a) value fmt =
 
 let fmt fmt ppf = pf ppf fmt
 
-let pp_of_value : type c a. (c, a) value -> a fmt = function
+let[@coverage off] pp_of_value : type c a. (c, a) value -> a fmt = function
   | LEInt -> fun ppf v -> if v < 0 then pf ppf "%16x" v else pf ppf "%10d" v
   | LEInt31 -> fmt "%10d"
   | LEInt16 -> fmt "%5d"
@@ -533,7 +533,7 @@ module Make (S : S) = struct
     | '\x21' .. '\x7e' as chr -> Fmt.char ppf chr
     | chr -> Fmt.pf ppf "%02x" (Char.code chr)
 
-  let pp_n4 ppf addr =
+  let[@coverage off] pp_n4 ppf addr =
     let* _0 = atomic_get Addr.(addr + _header_length + 0) Value.int8 in
     let* _1 = atomic_get Addr.(addr + _header_length + 1) Value.int8 in
     let* _2 = atomic_get Addr.(addr + _header_length + 2) Value.int8 in
@@ -541,12 +541,12 @@ module Make (S : S) = struct
     let arr = [| _0; _1; _2; _3 |] in
     fprintf ppf "%a" Fmt.(Dump.array (using Char.unsafe_chr pp_char)) arr
 
-  let pp_n16 ppf addr =
+  let[@coverage off] pp_n16 ppf addr =
     let* ks = atomic_get Addr.(addr + _header_length) Value.leint128 in
     let arr = Array.init 16 (fun i -> ks.[i]) in
     fprintf ppf "%a" Fmt.(Dump.array pp_char) arr
 
-  let pp_n48 ppf addr =
+  let[@coverage off] pp_n48 ppf addr =
     let rec go arr i =
       if i = 48 then return arr
       else
@@ -557,9 +557,9 @@ module Make (S : S) = struct
     let* arr = go (Array.make 48 '\000') 0 in
     fprintf ppf "%a" Fmt.(Dump.array pp_char) arr
 
-  let pp_n256 ppf _addr = fprintf ppf "n256"
+  let[@coverage off] pp_n256 ppf _addr = fprintf ppf "n256"
 
-  let pp_keys ppf addr =
+  let[@coverage off] pp_keys ppf addr =
     let* ty = get_type addr in
     match ty with
     | 0 -> pp_n4 ppf addr
@@ -568,7 +568,7 @@ module Make (S : S) = struct
     | 3 -> pp_n256 ppf addr
     | _ -> assert false
 
-  let pp_kind ppf addr =
+  let[@coverage off] pp_kind ppf addr =
     let* ty = get_type addr in
     match ty with
     | 0 -> fprintf ppf "%a" Fmt.string "N4"
@@ -577,7 +577,7 @@ module Make (S : S) = struct
     | 3 -> fprintf ppf "%a" Fmt.string "N256"
     | _ -> assert false
 
-  let pp_record ppf addr =
+  let[@coverage off] pp_record ppf addr =
     let* prefix, prefix_count = get_prefix addr in
     let* depth = get Addr.(addr + _header_depth) Value.leint31 in
     let* () =
@@ -588,7 +588,7 @@ module Make (S : S) = struct
     let* () = fprintf ppf ";@] }" in
     return ()
 
-  let rec pp_children ~header ~n:max ppf addr =
+  let[@coverage off] rec pp_children ~header ~n:max ppf addr =
     let rec go ~header idx arr =
       if idx < max then (
         let addr =
@@ -613,7 +613,7 @@ module Make (S : S) = struct
     let* () = fprintf ppf "@]|]" in
     return ()
 
-  and pp_elt ppf (addr : ro Addr.t) =
+  and[@coverage off] pp_elt ppf (addr : ro Addr.t) =
     if Addr.is_null addr then fprintf ppf "<null>"
     else if (addr :> int) land 1 = 1 then
       let leaf = Leaf.prj (Addr.unsafe_to_leaf addr) in
@@ -640,7 +640,8 @@ module Make (S : S) = struct
       let* () = fprintf ppf "@];@] }" in
       return ()
 
-  let pp ppf (root : _ rd Addr.t) = pp_elt ppf (Addr.to_rdonly root)
+  let[@coverage off] pp ppf (root : _ rd Addr.t) =
+    pp_elt ppf (Addr.to_rdonly root)
 
   let any_child (addr : _ rd Addr.t) =
     let* ty = get_type addr in
@@ -2180,27 +2181,29 @@ module Make (S : S) = struct
       else _check_prefix ~key ~key_len ~prefix ~level (succ idx) max
     else true
 
+  type unoptimized_check_prefix = Not_found | Match of int
+
   let unoptimized_check_prefix (addr : _ rd Addr.t) ~key ~key_len level =
     let* depth = get Addr.(addr + _header_depth) Value.leint31 in
-    if key_len < depth then return `Not_found
+    if key_len < depth then return Not_found
     else
       let* prefix, prefix_count = get_prefix addr in
-      if prefix_count + level < depth then return (`Match (depth - level))
+      if prefix_count + level < depth then return (Match (depth - level))
       else if prefix_count > 0 then
         let idx = level + prefix_count - depth
         and max = min prefix_count _prefix in
         if not (_check_prefix ~key ~key_len ~prefix ~level idx max) then
-          return `Not_found
+          return Not_found
         else if prefix_count > _prefix then
-          return (`Match (max + (prefix_count - _prefix)))
-        else return (`Match (-max))
-      else return (`Match 0)
+          return (Match (max + (prefix_count - _prefix)))
+        else return (Match (-max))
+      else return (Match 0)
 
   let rec _exists (node : _ rd Addr.t) ~key ~key_len ~optimistic_match level =
     let* res = unoptimized_check_prefix node ~key ~key_len level in
     match res with
-    | `Not_found -> return false
-    | `Match res ->
+    | Not_found -> return false
+    | Match res ->
         let optimistic_match = if res > 0 then true else optimistic_match in
         let level = level + abs res in
         if key_len < level then return false

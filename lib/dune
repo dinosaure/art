@@ -13,6 +13,8 @@
  (public_name rowex)
  (libraries hxd.core hxd.string atomic ipc fmt logs)
  (ocamlopt_flags -O3)
+ (instrumentation
+  (backend bisect_ppx))
  (foreign_stubs
   (language c)
   (flags
