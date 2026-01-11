@@ -1,13 +1,6 @@
 open Monolith
 open PPrint
 
-module Map = Map.Make (struct
-  type t = Art.key
-
-  let compare (a : Art.key) (b : Art.key) =
-    String.compare (a :> string) (b :> string)
-end)
-
 let char_without_d0 () =
   match Gen.char () with '\000' -> Gen.reject () | chr -> chr
 

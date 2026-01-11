@@ -1,7 +1,0 @@
-(rule
- (copy %{read:../conf/which-atomic} atomic.ml))
-
-(library
- (name atomic)
- (modules atomic)
- (public_name rowex.atomic))

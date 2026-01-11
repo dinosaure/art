@@ -810,6 +810,44 @@ let test38 =
   let m = Map.remove k0 m in
   Alcotest.(check bool) "incl_mt && incl_tm" (incl_mt m t && incl_tm t m) true
 
+let test39 =
+  Alcotest.test_case "test39" `Quick @@ fun () ->
+  let entries =
+    [|
+      "/stdlib/index.html";
+      "/stdlib/Stdlib/index.html";
+      "/stdlib/Stdlib/Weak/module-type-S/index.html";
+      "/stdlib/Stdlib/Weak/index.html";
+      "/stdlib/Stdlib/Weak/Make/index.html";
+      "/stdlib/Stdlib/Weak/Make/argument-1-H/index.html";
+      "/stdlib/Stdlib/Unit/index.html";
+      "/stdlib/Stdlib/Uchar/index.html";
+      "/stdlib/Stdlib/Type/index.html";
+      "/stdlib/Stdlib/Type/Id/index.html";
+      "/stdlib/Stdlib/Sys/index.html";
+      "/stdlib/Stdlib/Sys/Immediate64/module-type-Non_immediate/index.html";
+      "/stdlib/Stdlib/Sys/Immediate64/module-type-Immediate/index.html";
+    |]
+  in
+  let entries = Array.mapi (fun idx str -> (Art.key str, idx)) entries in
+  let tree = Art.make () in
+  let fn ((key : Art.key), idx) =
+    Art.insert tree key idx;
+    Fmt.epr ">>> @[<hov>%a@]\n%!" (Art.pp Fmt.int) tree;
+    let sub = Array.sub entries 0 (idx + 1) in
+    let fn (key, idx) =
+      let idx' = Art.find tree key in
+      Alcotest.(check int) (key :> string) idx idx'
+    in
+    Array.iter fn sub
+  in
+  Array.iter fn entries;
+  let fn (key, idx) =
+    let idx' = Art.find tree key in
+    Alcotest.(check int) (key :> string) idx idx'
+  in
+  Array.iter fn entries
+
 let random_integers num range =
   let data = Array.make num (Art.key "", 0) in
   for i = 0 to num - 1 do
@@ -841,6 +879,7 @@ let () =
           test35;
           test36;
           test38;
+          test39;
         ] );
       ("minimum", [ test16; test17; test18; test19; test20 ]);
       ( "remove",
