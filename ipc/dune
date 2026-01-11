@@ -1,4 +1,0 @@
-(library
- (name ipc)
- (public_name rowex.ipc)
- (libraries logs rresult unix))

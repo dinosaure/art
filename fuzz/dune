@@ -1,17 +1,16 @@
 (executable
  (name fuzz)
  (modules fuzz)
+ (ocamlopt_flags
+  (:standard -afl-instrument))
  (libraries art crowbar))
 
 (executable
  (name monolith)
  (modules monolith)
+ (ocamlopt_flags
+  (:standard -afl-instrument))
  (libraries art monolith))
-
-(executable
- (name fuzz_rowex)
- (modules fuzz_rowex)
- (libraries logs.fmt fmt.tty rowex.mem crowbar))
 
 (rule
  (alias runtest)
@@ -22,8 +21,3 @@
  (alias monolith)
  (action
   (run ./monolith.exe)))
-
-(rule
- (alias runtest)
- (action
-  (run ./fuzz_rowex.exe)))
