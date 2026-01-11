@@ -21,7 +21,7 @@
  (optional)
  (enabled_if
   (= %{profile} benchmark))
- (libraries bechamel bechamel-notty notty.unix bechamel-js art))
+ (libraries bechamel bechamel-js art))
 
 (rule
  (targets insert.json)
@@ -46,7 +46,7 @@
  (optional)
  (enabled_if
   (= %{profile} benchmark))
- (libraries base64 bechamel bechamel-notty notty.unix bechamel-js art))
+ (libraries base64 bechamel bechamel-js art))
 
 (rule
  (targets find.json)
