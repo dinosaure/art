@@ -1,3 +1,11 @@
+### v0.3.0 2026-01-11 Paris (France)
+
+- Add `prefix_iter` (@dinosaure, #47)
+- Fix our implementation from fuzzer's outputs (@dinosaure, #48)
+- Remove our `rowex` implementation (@dinosaure, #57)
+  The project is now available here: https://github.com/robur-coop/bancos
+- Upgrade our benchmarks and remove the use of `bechamel-notty` (@dinosaure, #58)
+
 ### v0.2.0 2022-07-20 Vierville sur mer (France)
 
 - Add `is_empty` function (@dinosaure, #28)
