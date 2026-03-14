@@ -672,6 +672,18 @@ let rec iter ~f acc = function
       done;
       !acc
 
+let rec map ~f = function
+  | Leaf { key; value } -> Leaf { key; value = f key value }
+  | Node ({ children; _ } as node) ->
+      let fn = function
+        | Node _ as elt -> map ~f elt
+        | Leaf { key; value } -> Leaf { key; value = f key value }
+      in
+      let children = Array.map fn children in
+      Node { node with children }
+
+let map ~f tree = ref (map ~f !tree)
+
 let leaf_prefix_matches leaf prefix =
   if String.length leaf.key < String.length prefix then raise Not_found
   else memcmp leaf.key prefix ~off:0 ~len:(String.length prefix)

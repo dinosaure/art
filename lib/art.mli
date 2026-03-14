@@ -87,3 +87,8 @@ val prefix_iter :
         dalton
         = [ "Dalton Joe"; "Dalton Jack"; "Dalton William"; "Dalton Averell" ])
     ]} *)
+
+val map : f:(key -> 'a -> 'b) -> 'a t -> 'b t
+(** [map ~f t] returns a map with same domain as [t], where the associated value
+    [a] of all bindings of [t] has been replaced by the result of the
+    application of [f] to [a]. *)
