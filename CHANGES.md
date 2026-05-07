@@ -1,3 +1,7 @@
+### v0.4.0 2026-05-07 Paris (France)
+
+- Add `Art.map` (@dinosaure, #59)
+
 ### v0.3.0 2026-01-11 Paris (France)
 
 - Add `prefix_iter` (@dinosaure, #47)
